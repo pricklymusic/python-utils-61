@@ -1,34 +1,25 @@
-import json
-import re
+import time
+import requests
+from requests.exceptions import RequestException
 
-def is_positive_integer(value):
-    try:
-        ivalue = int(value)
-        return ivalue > 0
-    except ValueError:
-        return False
-
-
-def validate_email(email):
-    email_regex = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
-    return re.match(email_regex, email) is not None
-
-
-def process_data(data):
-    if not is_positive_integer(data.get('age')):
-        raise ValueError('Age must be a positive integer.')
-    if not validate_email(data.get('email')):
-        raise ValueError('Invalid email address.')
-    return f"Processed data for {data['name']} with age {data['age']} and email {data['email']}"
-
-
-def main():
-    input_data = json.loads('{"name": "John", "age": "30", "email": "john@example.com"}')
-    try:
-        result = process_data(input_data)
-        print(result)
-    except ValueError as e:
-        print(e)
+def retry_request(url, max_retries=3, backoff_factor=0.3):
+    retries = 0
+    while retries < max_retries:
+        try:
+            response = requests.get(url)
+            response.raise_for_status()  # Raise an error for bad responses
+            return response.json()  # Assuming you want JSON response
+        except RequestException as e:
+            retries += 1
+            wait_time = backoff_factor * (2 ** (retries - 1))
+            print(f'Retry {retries}/{max_retries} for {url} due to {e}')
+            time.sleep(wait_time)
+    raise Exception(f'Max retries exceeded for {url}')
 
 if __name__ == '__main__':
-    main()
+    url = 'https://api.example.com/data'
+    try:
+        data = retry_request(url)
+        print(data)
+    except Exception as e:
+        print(e)
