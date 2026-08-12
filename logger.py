@@ -1,37 +1,27 @@
 import logging
-import time
-from functools import wraps
+import logging.handlers
+import os
 
-def retry(max_retries=3, wait_time=2):
-    def decorator(func):
-        @wraps(func)
-        def wrapper(*args, **kwargs):
-            attempts = 0
-            while attempts < max_retries:
-                try:
-                    return func(*args, **kwargs)
-                except Exception as e:
-                    attempts += 1
-                    logging.warning(f'Attempt {attempts} failed: {e}')
-                    time.sleep(wait_time)
-                    if attempts >= max_retries:
-                        logging.error('Max retries exceeded')
-                        raise
-        return wrapper
-    return decorator
+log_directory = 'logs'
+if not os.path.exists(log_directory):
+    os.makedirs(log_directory)
 
-@retry(max_retries=5, wait_time=1)
-def network_request():
-    # Simulate a network operation that may fail
-    import random
-    if random.choice([True, False]):
-        raise ConnectionError('Network failure')
-    return 'Success'
+class CustomLogger:
+    def __init__(self, name):
+        self.logger = logging.getLogger(name)
+        self.logger.setLevel(logging.DEBUG)
+        handler = logging.handlers.RotatingFileHandler(
+            os.path.join(log_directory, 'app.log'),
+            maxBytes=5 * 1024 * 1024,  # 5 MB
+            backupCount=3
+        )
+        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        handler.setFormatter(formatter)
+        self.logger.addHandler(handler)
 
-if __name__ == '__main__':
-    logging.basicConfig(level=logging.INFO)
-    try:
-        result = network_request()
-        logging.info(f'Network request result: {result}')
-    except ConnectionError:
-        logging.error('Network request ultimately failed')
+    def get_logger(self):
+        return self.logger
+
+# Usage example:
+# custom_logger = CustomLogger(__name__).get_logger()
+# custom_logger.info('This is an info message.')
