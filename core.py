@@ -1,28 +1,41 @@
-import json
-import os
+import time
+import functools
 
-class DataProcessor:
-    def __init__(self, data):
-        self.data = data
+# Decorator for timing function execution
 
-    def clean_data(self):
-        # Remove invalid entries
-        return [entry for entry in self.data if self.is_valid(entry)]
+def timeit(func):
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        start = time.time()
+        result = func(*args, **kwargs)
+        end = time.time()
+        print(f'Execution time for {func.__name__}: {end - start:.4f} seconds')
+        return result
+    return wrapper
 
-    def is_valid(self, entry):
-        # Check if the entry meets criteria
-        return isinstance(entry, dict) and 'value' in entry
+# Sample function to demonstrate optimization
 
-    def aggregate_data(self):
-        return sum(entry['value'] for entry in self.clean_data())
+@timeit
+def compute_heavy_operation(n):
+    total = 0
+    for i in range(n):
+        total += sum(j * j for j in range(1000))
+    return total
 
-def read_json_file(file_path):
-    with open(file_path, 'r') as file:
-        return json.load(file)
+# Another function that does some general processing
+
+@timeit
+def process_data(data):
+    return [d * 2 for d in data if d % 2 == 0]
+
+# Main function to showcase usage
+
+def main():
+    result = compute_heavy_operation(10)
+    print(f'Result of heavy operation: {result}')
+    data = range(100)
+    processed = process_data(data)
+    print(f'Processed data: {processed}')  
 
 if __name__ == '__main__':
-    file_path = os.path.join(os.getcwd(), 'data.json')
-    data = read_json_file(file_path)
-    processor = DataProcessor(data)
-    result = processor.aggregate_data()
-    print(f'Aggregate Result: {result}')
+    main()
