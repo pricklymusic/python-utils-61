@@ -1,26 +1,30 @@
-import time
-import requests
+import random
+import string
+import json
 
-class RetryException(Exception):
-    pass
+class DataGenerator:
+    def __init__(self, num_records):
+        self.num_records = num_records
 
-def retry_request(url, retries=3, backoff=2, timeout=5):
-    attempt = 0
-    while attempt < retries:
-        try:
-            response = requests.get(url, timeout=timeout)
-            response.raise_for_status()
-            return response.json()
-        except requests.RequestException as e:
-            attempt += 1
-            if attempt == retries:
-                raise RetryException(f'Request failed after {retries} attempts') from e
-            time.sleep(backoff ** attempt)
+    def generate_record(self):
+        id_length = 8
+        record = {
+            'id': ''.join(random.choices(string.ascii_letters + string.digits, k=id_length)),
+            'value': random.randint(1, 100),
+            'description': ''.join(random.choices(string.ascii_letters + ' ', k=20)).strip()
+        }
+        return record
+
+    def generate_data(self):
+        return [self.generate_record() for _ in range(self.num_records)]
+
+class DataSaver:
+    @staticmethod
+    def save_to_json(data, filename):
+        with open(filename, 'w') as f:
+            json.dump(data, f, indent=4)
 
 if __name__ == '__main__':
-    url = 'https://api.example.com/data'
-    try:
-        data = retry_request(url)
-        print(data)
-    except RetryException as e:
-        print(e)
+    generator = DataGenerator(num_records=10)
+    data = generator.generate_data()
+    DataSaver.save_to_json(data, 'output.json')
