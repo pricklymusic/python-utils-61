@@ -1,27 +1,19 @@
 import logging
-import logging.handlers
-import os
+from logging.handlers import RotatingFileHandler
 
-log_directory = 'logs'
-if not os.path.exists(log_directory):
-    os.makedirs(log_directory)
+def setup_logger(name, logfile, level=logging.DEBUG):
+    logger = logging.getLogger(name)
+    logger.setLevel(level)
+    handler = RotatingFileHandler(logfile, maxBytes=5*1024*1024, backupCount=3)
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+    return logger
 
-class CustomLogger:
-    def __init__(self, name):
-        self.logger = logging.getLogger(name)
-        self.logger.setLevel(logging.DEBUG)
-        handler = logging.handlers.RotatingFileHandler(
-            os.path.join(log_directory, 'app.log'),
-            maxBytes=5 * 1024 * 1024,  # 5 MB
-            backupCount=3
-        )
-        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-        handler.setFormatter(formatter)
-        self.logger.addHandler(handler)
-
-    def get_logger(self):
-        return self.logger
-
-# Usage example:
-# custom_logger = CustomLogger(__name__).get_logger()
-# custom_logger.info('This is an info message.')
+if __name__ == '__main__':
+    log = setup_logger('my_logger', 'app.log')
+    log.debug('Debug message')
+    log.info('Informational message')
+    log.warning('Warning message')
+    log.error('Error message')
+    log.critical('Critical message')
