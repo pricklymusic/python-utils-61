@@ -1,14 +1,31 @@
-def validate_input(data):
-    if not isinstance(data, dict):
-        raise ValueError('Input must be a dictionary.')
-    if 'name' not in data or not isinstance(data['name'], str):
-        raise ValueError('Missing or invalid name.')
-    if 'age' not in data or not isinstance(data['age'], int) or data['age'] < 0:
-        raise ValueError('Missing or invalid age.')
-    return True
+import re
+from typing import Any, Dict, Union
 
-def main_processing_loop(inputs):
-    for input_data in inputs:
-        try:
-            validate_input(input_data)
-            print(f'Processing {input_data[
+class InputValidator:
+    def __init__(self, constraints: Dict[str, Union[type, int]]):
+        self.constraints = constraints
+
+    def validate(self, input_data: Dict[str, Any]) -> bool:
+        for key, value in self.constraints.items():
+            if key not in input_data:
+                return False
+            if isinstance(value, type):
+                if not isinstance(input_data[key], value):
+                    return False
+            elif isinstance(value, int):
+                if len(input_data[key]) != value:
+                    return False
+        return True
+
+if __name__ == '__main__':
+    constraints = {
+        'username': str,
+        'password': str,
+        'age': int,
+    }
+    validator = InputValidator(constraints)
+    input_data = {'username': 'user', 'password': 'pass123', 'age': 25}
+    if validator.validate(input_data):
+        print('Input is valid')
+    else:
+        print('Input is invalid')
