@@ -1,40 +1,28 @@
-import os
-import json
+import time
+import requests
 
-def read_json(file_path: str) -> dict:
-    if not os.path.isfile(file_path):
-        raise FileNotFoundError(f"The file {file_path} does not exist.")
-    with open(file_path, 'r') as f:
-        return json.load(f)
+class RetryException(Exception):
+    pass
 
+def retry_request(url, retries=3, delay=2, backoff=2):
+    """Perform a GET request with retry logic."""
+    for attempt in range(retries):
+        try:
+            response = requests.get(url)
+            response.raise_for_status()
+            return response.json()  # Assuming we're expecting JSON
+        except requests.RequestException as e:
+            if attempt < retries - 1:
+                time.sleep(delay)
+                delay *= backoff  # Exponential backoff
+            else:
+                raise RetryException(f'Request failed after {retries} attempts') from e
 
-def write_json(file_path: str, data: dict) -> None:
-    with open(file_path, 'w') as f:
-        json.dump(data, f, indent=4)
-
-
-def merge_dicts(dict1: dict, dict2: dict) -> dict:
-    merged = dict1.copy()
-    merged.update(dict2)
-    return merged
-
-
-def flatten_list(nested_list: list) -> list:
-    return [item for sublist in nested_list for item in sublist]  
-
-
-def safe_get(data: dict, key: str, default=None):
-    return data.get(key, default)  
-
-
-def logging_decorator(func):
-    def wrapper(*args, **kwargs):
-        print(f"Calling {func.__name__}")
-        result = func(*args, **kwargs)
-        print(f"{func.__name__} returned {result}")
-        return result
-    return wrapper
-
-@logging_decorator
-def greet(name: str) -> str:
-    return f'Hello, {name}!'
+# Example usage
+# if __name__ == "__main__":
+#     url = 'https://api.example.com/data'
+#     try:
+#         data = retry_request(url)
+#         print(data)
+#     except RetryException as err:
+#         print(err)
