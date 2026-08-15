@@ -1,28 +1,33 @@
-import time
-import requests
+def safe_divide(numerator, denominator):
+    if denominator == 0:
+        raise ValueError("Denominator cannot be zero")
+    return numerator / denominator
 
-class RetryException(Exception):
-    pass
 
-def retry_request(url, retries=3, delay=2, backoff=2):
-    """Perform a GET request with retry logic."""
-    for attempt in range(retries):
-        try:
-            response = requests.get(url)
-            response.raise_for_status()
-            return response.json()  # Assuming we're expecting JSON
-        except requests.RequestException as e:
-            if attempt < retries - 1:
-                time.sleep(delay)
-                delay *= backoff  # Exponential backoff
-            else:
-                raise RetryException(f'Request failed after {retries} attempts') from e
+def flatten(nested_list):
+    flatten_list = []
+    for item in nested_list:
+        if isinstance(item, list):
+            flatten_list.extend(flatten(item))
+        else:
+            flatten_list.append(item)
+    return flatten_list
 
-# Example usage
-# if __name__ == "__main__":
-#     url = 'https://api.example.com/data'
-#     try:
-#         data = retry_request(url)
-#         print(data)
-#     except RetryException as err:
-#         print(err)
+
+def memoize(func):
+    cache = {}
+    def memoized_func(*args):
+        if args not in cache:
+            cache[args] = func(*args)
+        return cache[args]
+    return memoized_func
+
+
+def read_file(file_path):
+    with open(file_path, 'r') as file:
+        return file.read()
+
+
+def write_file(file_path, content):
+    with open(file_path, 'w') as file:
+        file.write(content)
