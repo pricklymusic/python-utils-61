@@ -1,44 +1,30 @@
-from typing import Dict, Any
+import json
+import os
 
-class Config:
-    def __init__(self, config_data: Dict[str, Any]) -> None:
-        self._config_data = config_data
+class ConfigLoader:
+    def __init__(self, default_config_file):
+        self.default_config_file = default_config_file
+        self.config = self.load_defaults()
 
-    def get(self, key: str, default: Any = None) -> Any:
-        """
-        Retrieve the value for the specified key.
-        If the key does not exist, return the default value.
-        """
-        return self._config_data.get(key, default)
+    def load_defaults(self):
+        if os.path.exists(self.default_config_file):
+            with open(self.default_config_file, 'r') as file:
+                return json.load(file)
+        return {}
 
-    def set(self, key: str, value: Any) -> None:
-        """
-        Set the value for a specified key.
-        If the key already exists, it will be updated.
-        """
-        self._config_data[key] = value
+    def update_config(self, new_config):
+        self.config.update(new_config)
 
-    def remove(self, key: str) -> None:
-        """
-        Remove the specified key from the configuration.
-        If the key does not exist, do nothing.
-        """
-        self._config_data.pop(key, None)
+    def get(self, key, default=None):
+        return self.config.get(key, default)
 
-    def keys(self) -> list[str]:
-        """
-        Return a list of all keys in the configuration.
-        """
-        return list(self._config_data.keys())
+    def save(self, output_file):
+        with open(output_file, 'w') as file:
+            json.dump(self.config, file, indent=4)
 
-    def values(self) -> list[Any]:
-        """
-        Return a list of all values in the configuration.
-        """
-        return list(self._config_data.values())
-
-    def items(self) -> list[tuple[str, Any]]:
-        """
-        Return a list of all key-value pairs in the configuration.
-        """
-        return list(self._config_data.items())
+# Usage example
+if __name__ == '__main__':
+    loader = ConfigLoader('defaults.json')
+    print(loader.get('key', 'default_value'))
+    loader.update_config({'new_key': 'new_value'})
+    loader.save('output.json')
