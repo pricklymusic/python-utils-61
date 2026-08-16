@@ -1,33 +1,24 @@
-from typing import Final, List
+from typing import Final
 
-# Constants used throughout the application
-
-# Define numeric constants
-PI: Final[float] = 3.14159
-EULER: Final[float] = 2.71828
-
-# Define a list of supported file extensions
-SUPPORTED_EXTENSIONS: Final[List[str]] = ['.csv', '.json', '.xml']
-
-# Define the default timeout for network requests
-DEFAULT_TIMEOUT: Final[int] = 30
-
-# Define the maximum number of retries for network operations
+# Define constant values used throughout the application
+API_URL: Final[str] = "https://api.example.com/"
+TIMEOUT: Final[int] = 30
 MAX_RETRIES: Final[int] = 5
 
-# Define some color constants for terminal output
-class TerminalColors:
-    RESET: str = '\033[0m'
-    RED: str = '\033[91m'
-    GREEN: str = '\033[92m'
-    YELLOW: str = '\033[93m'
-    BLUE: str = '\033[94m'
-    MAGENTA: str = '\033[95m'
-    CYAN: str = '\033[96m'
+# Application-specific status codes
+class StatusCode:
+    SUCCESS: Final[int] = 200
+    NOT_FOUND: Final[int] = 404
+    INTERNAL_ERROR: Final[int] = 500
 
-# Application-specific constants
-APPLICATION_NAME: Final[str] = 'Python Utils 61'
-MAX_CONNECTIONS: Final[int] = 100
+# Utility constants
+class Constants:
+    DEFAULT_LANGUAGE: Final[str] = "en"
+    SUPPORTED_LANGUAGES: Final[list[str]] = ["en", "es", "fr", "de"]
+    MAX_ITEMS_PER_PAGE: Final[int] = 50
 
-# Constants for logging
-LOGGING_LEVEL: Final[str] = 'DEBUG'
+# Message templates
+MESSAGE_TEMPLATES: Final[dict[str, str]] = {
+    'welcome': 'Welcome to the application!',
+    'goodbye': 'Thank you for using our app!'
+}
