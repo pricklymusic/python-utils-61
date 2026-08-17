@@ -1,30 +1,33 @@
 import json
-import os
 
-class ConfigLoader:
-    def __init__(self, default_config_file):
-        self.default_config_file = default_config_file
-        self.config = self.load_defaults()
+class ConfigurationLoader:
+    def __init__(self, default_config):
+        self.default_config = default_config
+        self.config = default_config.copy()
 
-    def load_defaults(self):
-        if os.path.exists(self.default_config_file):
-            with open(self.default_config_file, 'r') as file:
-                return json.load(file)
-        return {}
-
-    def update_config(self, new_config):
-        self.config.update(new_config)
+    def load_from_file(self, filepath):
+        try:
+            with open(filepath, 'r') as file:
+                file_config = json.load(file)
+                self.config.update(file_config)
+        except FileNotFoundError:
+            print(f"Warning: Configuration file '{filepath}' not found, using defaults.")
+        except json.JSONDecodeError:
+            print(f"Error: Configuration file '{filepath}' is not valid JSON, using defaults.")
 
     def get(self, key, default=None):
         return self.config.get(key, default)
 
-    def save(self, output_file):
-        with open(output_file, 'w') as file:
-            json.dump(self.config, file, indent=4)
+    def all(self):
+        return self.config
 
-# Usage example
+# Example default configuration
 if __name__ == '__main__':
-    loader = ConfigLoader('defaults.json')
-    print(loader.get('key', 'default_value'))
-    loader.update_config({'new_key': 'new_value'})
-    loader.save('output.json')
+    defaults = {
+        'host': 'localhost',
+        'port': 8080,
+        'debug': False
+    }
+    config_loader = ConfigurationLoader(defaults)
+    config_loader.load_from_file('config.json')
+    print(config_loader.all())
