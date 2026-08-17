@@ -1,32 +1,17 @@
 import logging
+from logging.handlers import RotatingFileHandler
 
-class CustomLogger:
-    def __init__(self, name, level=logging.INFO):
-        self.logger = logging.getLogger(name)
-        self.logger.setLevel(level)
-        ch = logging.StreamHandler()
-        ch.setLevel(level)
-        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-        ch.setFormatter(formatter)
-        self.logger.addHandler(ch)
-
-    def debug(self, message):
-        self.logger.debug(message)
-
-    def info(self, message):
-        self.logger.info(message)
-
-    def warning(self, message):
-        self.logger.warning(message)
-
-    def error(self, message):
-        self.logger.error(message)
-
-    def critical(self, message):
-        self.logger.critical(message)
+def setup_logger(name, log_file, level=logging.INFO):
+    handler = RotatingFileHandler(log_file, maxBytes=5*1024*1024, backupCount=3)
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    handler.setFormatter(formatter)
+    logger = logging.getLogger(name)
+    logger.setLevel(level)
+    logger.addHandler(handler)
+    return logger
 
 # Example usage:
 if __name__ == '__main__':
-    log = CustomLogger(__name__)
-    log.info('This is an info message')
-    log.error('This is an error message')
+    my_logger = setup_logger('my_logger', 'app.log')
+    my_logger.info('This is an info message.')
+    my_logger.error('This is an error message.')
