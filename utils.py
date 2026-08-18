@@ -1,46 +1,35 @@
-from typing import List, Optional
+import time
 import random
 
+class NetworkError(Exception):
+    pass
 
-def pick_random_element(elements: List[Optional[str]]) -> Optional[str]:
-    """
-    Picks a random element from a non-empty list of strings.
+def network_operation():
+    if random.choice([True, False]):
+        raise NetworkError("Simulated network failure")
+    return "Network operation successful"
 
-    Args:
-        elements: A list that may contain strings or None values.
+def retry_decorator(retries=3, delay=2):
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            attempt = 0
+            while attempt < retries:
+                try:
+                    return func(*args, **kwargs)
+                except NetworkError as e:
+                    attempt += 1
+                    print(f"Attempt {attempt} failed: {e}")
+                    if attempt < retries:
+                        time.sleep(delay)
+            raise NetworkError(f"All {retries} attempts failed")
+        return wrapper
+    return decorator
 
-    Returns:
-        A randomly selected string from the list, or None if the list is empty.
-    """
-    if not elements:
-        return None
-    return random.choice(elements)
+@retry_decorator(retries=5, delay=1)
+def perform_network_task():
+    result = network_operation()
+    print(result)
+    return result
 
-
-def flatten_list(nested_list: List[List[Optional[int]]]) -> List[Optional[int]]:
-    """
-    Flattens a nested list of integers into a single list.
-
-    Args:
-        nested_list: A list of lists containing integers or None.
-
-    Returns:
-        A single flattened list containing the integers from the nested lists.
-    """
-    return [item for sublist in nested_list for item in sublist if item is not None]
-
-
-def calculate_average(numbers: List[Optional[float]]) -> Optional[float]:
-    """
-    Calculates the average of a list of numbers, ignoring None values.
-
-    Args:
-        numbers: A list containing numbers or None.
-
-    Returns:
-        The average of the numbers, or None if there are no valid numbers.
-    """
-    valid_numbers = [num for num in numbers if num is not None]
-    if not valid_numbers:
-        return None
-    return sum(valid_numbers) / len(valid_numbers)
+if __name__ == '__main__':
+    perform_network_task()
