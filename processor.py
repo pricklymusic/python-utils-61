@@ -1,25 +1,29 @@
-import time
-import requests
-from requests.exceptions import RequestException
+import json
+from typing import Any, Dict, List, Union
 
-def retry_request(url, max_retries=3, backoff_factor=0.3):
-    retries = 0
-    while retries < max_retries:
-        try:
-            response = requests.get(url)
-            response.raise_for_status()  # Raise an error for bad responses
-            return response.json()  # Assuming you want JSON response
-        except RequestException as e:
-            retries += 1
-            wait_time = backoff_factor * (2 ** (retries - 1))
-            print(f'Retry {retries}/{max_retries} for {url} due to {e}')
-            time.sleep(wait_time)
-    raise Exception(f'Max retries exceeded for {url}')
+class DataProcessor:
+    def __init__(self, data: Union[Dict[str, Any], List[Any]]) -> None:
+        self.data = data
 
-if __name__ == '__main__':
-    url = 'https://api.example.com/data'
-    try:
-        data = retry_request(url)
-        print(data)
-    except Exception as e:
-        print(e)
+    def filter_data(self, condition: Any) -> Union[Dict[str, Any], List[Any]]:
+        if isinstance(self.data, dict):
+            return {k: v for k, v in self.data.items() if condition(v)}
+        elif isinstance(self.data, list):
+            return [item for item in self.data if condition(item)]
+        return self.data
+
+    def transform_data(self, transformer: Any) -> Union[Dict[str, Any], List[Any]]:
+        if isinstance(self.data, dict):
+            return {k: transformer(v) for k, v in self.data.items()}
+        elif isinstance(self.data, list):
+            return [transformer(item) for item in self.data]
+        return self.data
+
+    def to_json(self) -> str:
+        return json.dumps(self.data)
+
+# Example usage:
+# processor = DataProcessor({'a': 1, 'b': 2})
+# filtered = processor.filter_data(lambda x: x > 1)
+# transformed = processor.transform_data(lambda x: x * 2)
+# json_output = processor.to_json()
