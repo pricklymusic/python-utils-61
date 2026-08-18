@@ -1,30 +1,31 @@
-import random
-import string
 import json
+import os
+import logging
 
-class DataGenerator:
-    def __init__(self, num_records):
-        self.num_records = num_records
+class DataProcessor:
+    def __init__(self, filepath):
+        self.filepath = filepath
+        self.data = self.load_data()
 
-    def generate_record(self):
-        id_length = 8
-        record = {
-            'id': ''.join(random.choices(string.ascii_letters + string.digits, k=id_length)),
-            'value': random.randint(1, 100),
-            'description': ''.join(random.choices(string.ascii_letters + ' ', k=20)).strip()
-        }
-        return record
+    def load_data(self):
+        if not os.path.exists(self.filepath):
+            logging.error('File not found')
+            return []
+        with open(self.filepath, 'r') as file:
+            return json.load(file)
 
-    def generate_data(self):
-        return [self.generate_record() for _ in range(self.num_records)]
+    def process_data(self):
+        processed = [self.clean_record(record) for record in self.data]
+        return processed
 
-class DataSaver:
-    @staticmethod
-    def save_to_json(data, filename):
-        with open(filename, 'w') as f:
-            json.dump(data, f, indent=4)
+    def clean_record(self, record):
+        return {k: v for k, v in record.items() if v is not None}
+
+    def save_data(self, output_filepath):
+        with open(output_filepath, 'w') as file:
+            json.dump(self.data, file)
 
 if __name__ == '__main__':
-    generator = DataGenerator(num_records=10)
-    data = generator.generate_data()
-    DataSaver.save_to_json(data, 'output.json')
+    processor = DataProcessor('input_data.json')
+    cleaned_data = processor.process_data()
+    processor.save_data('output_data.json')
