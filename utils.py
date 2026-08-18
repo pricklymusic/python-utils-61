@@ -1,30 +1,46 @@
-import os
-import json
+from typing import List, Optional
+import random
 
-class FileUtils:
-    @staticmethod
-    def read_json(file_path):
-        if not os.path.exists(file_path):
-            raise FileNotFoundError(f'File not found: {file_path}')
-        if not file_path.endswith('.json'):
-            raise ValueError('File must be a JSON file')
-        try:
-            with open(file_path, 'r') as file:
-                data = json.load(file)
-            return data
-        except json.JSONDecodeError:
-            raise ValueError('Error decoding JSON from the file')
-        except Exception as e:
-            raise RuntimeError(f'An unexpected error occurred: {str(e)}')
 
-    @staticmethod
-    def write_json(file_path, data):
-        if not isinstance(data, dict):
-            raise TypeError('Data must be a dictionary')
-        if not file_path.endswith('.json'):
-            raise ValueError('File must be a JSON file')
-        try:
-            with open(file_path, 'w') as file:
-                json.dump(data, file, indent=4)
-        except Exception as e:
-            raise RuntimeError(f'An unexpected error occurred during write: {str(e)}')
+def pick_random_element(elements: List[Optional[str]]) -> Optional[str]:
+    """
+    Picks a random element from a non-empty list of strings.
+
+    Args:
+        elements: A list that may contain strings or None values.
+
+    Returns:
+        A randomly selected string from the list, or None if the list is empty.
+    """
+    if not elements:
+        return None
+    return random.choice(elements)
+
+
+def flatten_list(nested_list: List[List[Optional[int]]]) -> List[Optional[int]]:
+    """
+    Flattens a nested list of integers into a single list.
+
+    Args:
+        nested_list: A list of lists containing integers or None.
+
+    Returns:
+        A single flattened list containing the integers from the nested lists.
+    """
+    return [item for sublist in nested_list for item in sublist if item is not None]
+
+
+def calculate_average(numbers: List[Optional[float]]) -> Optional[float]:
+    """
+    Calculates the average of a list of numbers, ignoring None values.
+
+    Args:
+        numbers: A list containing numbers or None.
+
+    Returns:
+        The average of the numbers, or None if there are no valid numbers.
+    """
+    valid_numbers = [num for num in numbers if num is not None]
+    if not valid_numbers:
+        return None
+    return sum(valid_numbers) / len(valid_numbers)
