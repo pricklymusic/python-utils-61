@@ -1,29 +1,36 @@
 import json
-from typing import Any, Dict, List, Union
+from typing import Any, Dict
+
+class ProcessingError(Exception):
+    pass
 
 class DataProcessor:
-    def __init__(self, data: Union[Dict[str, Any], List[Any]]) -> None:
+    def __init__(self, data: Dict[str, Any]):
         self.data = data
 
-    def filter_data(self, condition: Any) -> Union[Dict[str, Any], List[Any]]:
-        if isinstance(self.data, dict):
-            return {k: v for k, v in self.data.items() if condition(v)}
-        elif isinstance(self.data, list):
-            return [item for item in self.data if condition(item)]
-        return self.data
+    def validate_data(self) -> None:
+        if not isinstance(self.data, dict):
+            raise ProcessingError('Data must be a dictionary')
+        if 'value' not in self.data:
+            raise ProcessingError('Missing key: value')
+        if not isinstance(self.data['value'], (int, float)):
+            raise ProcessingError('Value must be a number')
 
-    def transform_data(self, transformer: Any) -> Union[Dict[str, Any], List[Any]]:
-        if isinstance(self.data, dict):
-            return {k: transformer(v) for k, v in self.data.items()}
-        elif isinstance(self.data, list):
-            return [transformer(item) for item in self.data]
-        return self.data
+    def process_data(self) -> float:
+        self.validate_data()
+        value = self.data['value']
+        result = value * 2  # Example processing
+        return result
 
     def to_json(self) -> str:
-        return json.dumps(self.data)
+        try:
+            result = self.process_data()
+            return json.dumps({'result': result})
+        except ProcessingError as e:
+            return json.dumps({'error': str(e)})
 
-# Example usage:
-# processor = DataProcessor({'a': 1, 'b': 2})
-# filtered = processor.filter_data(lambda x: x > 1)
-# transformed = processor.transform_data(lambda x: x * 2)
-# json_output = processor.to_json()
+if __name__ == '__main__':
+    processor = DataProcessor({'value': 10})
+    print(processor.to_json())  # Output: {"result": 20}
+    processor_invalid = DataProcessor({'no_value': 10})
+    print(processor_invalid.to_json())  # Output: {"error": "Missing key: value"}
