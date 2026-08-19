@@ -1,31 +1,32 @@
 import json
 import os
-import logging
+
+def load_json(file_path):
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(f"{file_path} not found")
+    with open(file_path, 'r') as f:
+        return json.load(f)
+
+def save_json(data, file_path):
+    with open(file_path, 'w') as f:
+        json.dump(data, f, indent=4)
 
 class DataProcessor:
-    def __init__(self, filepath):
-        self.filepath = filepath
-        self.data = self.load_data()
+    def __init__(self, data):
+        self.data = data
 
-    def load_data(self):
-        if not os.path.exists(self.filepath):
-            logging.error('File not found')
-            return []
-        with open(self.filepath, 'r') as file:
-            return json.load(file)
+    def filter(self, condition):
+        return [item for item in self.data if condition(item)]
 
-    def process_data(self):
-        processed = [self.clean_record(record) for record in self.data]
-        return processed
+    def transform(self, func):
+        return [func(item) for item in self.data]
 
-    def clean_record(self, record):
-        return {k: v for k, v in record.items() if v is not None}
-
-    def save_data(self, output_filepath):
-        with open(output_filepath, 'w') as file:
-            json.dump(self.data, file)
+def main():
+    data = load_json('input.json')
+    processor = DataProcessor(data)
+    filtered_data = processor.filter(lambda x: x['active'])
+    transformed_data = processor.transform(lambda x: x['name'].upper())
+    save_json(transformed_data, 'output.json')
 
 if __name__ == '__main__':
-    processor = DataProcessor('input_data.json')
-    cleaned_data = processor.process_data()
-    processor.save_data('output_data.json')
+    main()
