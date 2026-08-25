@@ -1,36 +1,48 @@
-import json
-from typing import Any, Dict
+import collections
 
-class ProcessingError(Exception):
-    pass
+class Processor:
+    """Creative data processor with reorganization via deque operations."""
 
-class DataProcessor:
-    def __init__(self, data: Dict[str, Any]):
-        self.data = data
+    def __init__(self, raw_data):
+        self._data = collections.deque(raw_data)
 
-    def validate_data(self) -> None:
-        if not isinstance(self.data, dict):
-            raise ProcessingError('Data must be a dictionary')
-        if 'value' not in self.data:
-            raise ProcessingError('Missing key: value')
-        if not isinstance(self.data['value'], (int, float)):
-            raise ProcessingError('Value must be a number')
+    def _deduplicate(self, data):
+        counts = collections.Counter(data)
+        return [item for item in data if counts[item] == 1]
 
-    def process_data(self) -> float:
-        self.validate_data()
-        value = self.data['value']
-        result = value * 2  # Example processing
-        return result
+    def cleanup(self):
+        temp = [x for x in self._data if x]
+        self._data = collections.deque(self._deduplicate(temp))
+        return self
 
-    def to_json(self) -> str:
-        try:
-            result = self.process_data()
-            return json.dumps({'result': result})
-        except ProcessingError as e:
-            return json.dumps({'error': str(e)})
+    def reorganize(self):
+        if not self._data:
+            return self
+        lst = list(self._data)
+        mid = len(lst) // 2
+        first_half = lst[:mid][::-1]
+        second_half = lst[mid:]
+        interleaved = []
+        for i in range(max(len(first_half), len(second_half))):
+            if i < len(first_half):
+                interleaved.append(first_half[i])
+            if i < len(second_half):
+                interleaved.append(second_half[i])
+        self._data = collections.deque(interleaved)
+        return self
 
-if __name__ == '__main__':
-    processor = DataProcessor({'value': 10})
-    print(processor.to_json())  # Output: {"result": 20}
-    processor_invalid = DataProcessor({'no_value': 10})
-    print(processor_invalid.to_json())  # Output: {"error": "Missing key: value"}
+    def apply(self, operation):
+        self._data = collections.deque(operation(item) for item in self._data)
+        return self
+
+    def finalize(self):
+        return list(self._data)
+
+def main():
+    sample = [0, 1, 2, 2, 3, 4, 5, 0, 6, 7, 7, 8]
+    p = Processor(sample)
+    result = p.cleanup().reorganize().apply(lambda x: x + 10).finalize()
+    print(result)
+
+if __name__ == "__main__":
+    main()
