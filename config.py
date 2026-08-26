@@ -1,44 +1,36 @@
 import os
 from typing import Any, Dict
 
-class ConfigLoader(dict):
+class ConfigLoader:
     def __init__(self, defaults: Dict[str, Any], env_prefix: str = "APP_") -> None:
-        super().__init__(defaults)
-        self.env_prefix = env_prefix
-        self._load_from_env()
+        self._config = dict(defaults)
+        self._env_prefix = env_prefix
+        self._load_env()
 
-    def __getattr__(self, key: str) -> Any:
-        try:
-            return self[key]
-        except KeyError as err:
-            raise AttributeError(f"Configuration key not found: {err}")
-
-    def __setattr__(self, key: str, value: Any) -> None:
-        self[key] = value
-
-    def _load_from_env(self) -> None:
-        for key in self.keys():
-            env_name = f"{self.env_prefix}{key.upper()}"
+    def _load_env(self) -> None:
+        for key in self._config:
+            env_name = f"{self._env_prefix}{key.upper()}"
             if env_name in os.environ:
                 val = os.environ[env_name]
-                self[key] = self._coerce(self[key], val)
+                self._config[key] = self._cast(val, type(self._config[key]))
 
     @staticmethod
-    def _coerce(original: Any, val: str) -> Any:
-        if isinstance(original, bool):
+    def _cast(val: str, target_type: type) -> Any:
+        if target_type is bool:
             return val.lower() in ("true", "1", "yes", "on")
-        if isinstance(original, int):
-            return int(val)
-        if isinstance(original, float):
-            return float(val)
-        return val
+        try:
+            return target_type(val)
+        except (ValueError, TypeError):
+            return val
 
-    def update_with_file(self, filepath: str) -> None:
-        if os.path.exists(filepath):
-            with open(filepath, "r") as f:
-                for line in f:
-                    if "=" in line and not line.strip().startswith("#"):
-                        k, v = line.strip().split("=", 1)
-                        k, v = k.strip().lower(), v.strip()
-                        if k in self:
-                            self[k] = self._coerce(self[k], v)
+    def get(self, key: str, default: Any = None) -> Any:
+        return self._config.get(key, default)
+
+    def __getitem__(self, key: str) -> Any:
+        return self._config[key]
+
+    def __contains__(self, key: str) -> bool:
+        return key in self._config
+
+def load_config(defaults: Dict[str, Any], prefix: str = "APP_") -> ConfigLoader:
+    return ConfigLoader(defaults, env_prefix=prefix)
