@@ -1,32 +1,30 @@
-import json
-import os
+import functools
+import time
+from typing import Callable, Any, Dict, Tuple
 
-def load_json(file_path):
-    if not os.path.exists(file_path):
-        raise FileNotFoundError(f"{file_path} not found")
-    with open(file_path, 'r') as f:
-        return json.load(f)
+class MemoizeWithTTL:
+    def __init__(self, ttl: int = 300):
+        self.ttl = ttl
+        self.cache: Dict[Tuple[Any, ...], Tuple[float, Any]] = {}
 
-def save_json(data, file_path):
-    with open(file_path, 'w') as f:
-        json.dump(data, f, indent=4)
+    def __call__(self, func: Callable[..., Any]) -> Callable[..., Any]:
+        @functools.wraps(func)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            now = time.monotonic()
+            key = args + tuple(sorted(kwargs.items()))
+            if key in self.cache:
+                timestamp, value = self.cache[key]
+                if now - timestamp < self.ttl:
+                    return value
+            value = func(*args, **kwargs)
+            self.cache[key] = (now, value)
+            return value
+        return wrapper
 
-class DataProcessor:
-    def __init__(self, data):
-        self.data = data
+def batch_process(iterable: list, size: int = 100) -> list:
+    iterator = iter(iterable)
+    return [list(chunk) for chunk in iter(lambda: list(dict(zip(range(size), iterator))), [])]
 
-    def filter(self, condition):
-        return [item for item in self.data if condition(item)]
-
-    def transform(self, func):
-        return [func(item) for item in self.data]
-
-def main():
-    data = load_json('input.json')
-    processor = DataProcessor(data)
-    filtered_data = processor.filter(lambda x: x['active'])
-    transformed_data = processor.transform(lambda x: x['name'].upper())
-    save_json(transformed_data, 'output.json')
-
-if __name__ == '__main__':
-    main()
+@MemoizeWithTTL(ttl=60)
+def compute_heavy_transform(data: tuple) -> tuple:
+    return tuple(x * 2 for x in data)
