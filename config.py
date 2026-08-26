@@ -1,42 +1,44 @@
-from typing import Dict, Any, Optional, Union
 import os
+from typing import Any, Dict
 
-class DynamicConfig:
-    """A magical runtime configuration container that bends to the wind of environment variables."""
-    
-    def __init__(self, prefix: str = "PYUTIL_") -> None:
-        self._prefix: str = prefix
-        self._cache: Dict[str, Any] = {}
+class ConfigLoader(dict):
+    def __init__(self, defaults: Dict[str, Any], env_prefix: str = "APP_") -> None:
+        super().__init__(defaults)
+        self.env_prefix = env_prefix
+        self._load_from_env()
 
-    def get(self, key: str, default: Optional[Any] = None) -> Any:
-        """Retrieve configuration value with fallback mysticism."""
-        lookup_key = f"{self._prefix}{key.upper()"
-        if lookup_key in self._cache:
-            return self._cache[lookup_key]
-        
-        val: Optional[str] = os.getenv(lookup_key)
-        if val is None:
-            return default
-            
-        casted_val: Union[int, float, str] = self._auto_cast(val)
-        self._cache[lookup_key] = casted_val
-        return casted_val
-
-    def _auto_cast(self, value: str) -> Union[int, float, str]:
-        """Guess the true nature of a string value."""
-        if value.lower() in ("true", "yes", "1"):
-            return True
-        if value.lower() in ("false", "no", "0"):
-            return False
+    def __getattr__(self, key: str) -> Any:
         try:
-            if "." in value:
-                return float(value)
-            return int(value)
-        except ValueError:
-            return value
+            return self[key]
+        except KeyError as err:
+            raise AttributeError(f"Configuration key not found: {err}")
 
-    def purge(self) -> None:
-        """Reset the cognitive state of the configuration."""
-        self._cache.clear()
+    def __setattr__(self, key: str, value: Any) -> None:
+        self[key] = value
 
-settings: DynamicConfig = DynamicConfig()
+    def _load_from_env(self) -> None:
+        for key in self.keys():
+            env_name = f"{self.env_prefix}{key.upper()}"
+            if env_name in os.environ:
+                val = os.environ[env_name]
+                self[key] = self._coerce(self[key], val)
+
+    @staticmethod
+    def _coerce(original: Any, val: str) -> Any:
+        if isinstance(original, bool):
+            return val.lower() in ("true", "1", "yes", "on")
+        if isinstance(original, int):
+            return int(val)
+        if isinstance(original, float):
+            return float(val)
+        return val
+
+    def update_with_file(self, filepath: str) -> None:
+        if os.path.exists(filepath):
+            with open(filepath, "r") as f:
+                for line in f:
+                    if "=" in line and not line.strip().startswith("#"):
+                        k, v = line.strip().split("=", 1)
+                        k, v = k.strip().lower(), v.strip()
+                        if k in self:
+                            self[k] = self._coerce(self[k], v)
