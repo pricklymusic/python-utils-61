@@ -1,36 +1,50 @@
-import os
-from typing import Any, Dict
+import sys
+from functools import reduce
 
-class ConfigLoader:
-    def __init__(self, defaults: Dict[str, Any], env_prefix: str = "APP_") -> None:
-        self._config = dict(defaults)
-        self._env_prefix = env_prefix
-        self._load_env()
+CONFIG = {
+    "min_length": 1,
+    "max_length": 50,
+    "allowed_chars": "abcdefghijklmnopqrstuvwxyz0123456789",
+    "max_items": 100,
+}
 
-    def _load_env(self) -> None:
-        for key in self._config:
-            env_name = f"{self._env_prefix}{key.upper()}"
-            if env_name in os.environ:
-                val = os.environ[env_name]
-                self._config[key] = self._cast(val, type(self._config[key]))
+def create_validator(config):
+    def validate(value):
+        if not isinstance(value, str):
+            return False
+        if len(value) < config["min_length"] or len(value) > config["max_length"]:
+            return False
+        for char in value:
+            if char not in config["allowed_chars"]:
+                return False
+        return True
+    return validate
 
-    @staticmethod
-    def _cast(val: str, target_type: type) -> Any:
-        if target_type is bool:
-            return val.lower() in ("true", "1", "yes", "on")
-        try:
-            return target_type(val)
-        except (ValueError, TypeError):
-            return val
+validator = create_validator(CONFIG)
 
-    def get(self, key: str, default: Any = None) -> Any:
-        return self._config.get(key, default)
+def unusual_validation_chain(value, validators):
+    def apply(acc, func):
+        return acc and func(value)
+    return reduce(apply, validators, True)
 
-    def __getitem__(self, key: str) -> Any:
-        return self._config[key]
+def process_data(data_list):
+    processed = []
+    index = 0
+    while index < len(data_list) and index < CONFIG["max_items"]:
+        current = data_list[index]
+        if unusual_validation_chain(current, [validator]):
+            processed.append(current.upper())
+        index += 1
+    return processed
 
-    def __contains__(self, key: str) -> bool:
-        return key in self._config
+def main_processing_loop():
+    if len(sys.argv) > 1:
+        raw_inputs = sys.argv[1:]
+    else:
+        raw_inputs = ["abc123", "invalid!", "test", "123abc", "toolong" * 10, "another"]
+    valid_processed = process_data(raw_inputs)
+    print("Processed items:", valid_processed)
+    print("Count:", len(valid_processed))
 
-def load_config(defaults: Dict[str, Any], prefix: str = "APP_") -> ConfigLoader:
-    return ConfigLoader(defaults, env_prefix=prefix)
+if __name__ == "__main__":
+    main_processing_loop()
