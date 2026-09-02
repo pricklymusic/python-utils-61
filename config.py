@@ -1,50 +1,73 @@
-import sys
-from functools import reduce
+import json
+from pathlib import Path
+from typing import Any, Dict, Optional
 
-CONFIG = {
-    "min_length": 1,
-    "max_length": 50,
-    "allowed_chars": "abcdefghijklmnopqrstuvwxyz0123456789",
-    "max_items": 100,
-}
+class ConfigLoader:
+    def __init__(self, defaults: Optional[Dict[str, Any]] = None, filepath: Optional[str] = None) -> None:
+        self.defaults: Dict[str, Any] = defaults or {}
+        self.data: Dict[str, Any] = {}
+        if filepath:
+            self.load(filepath)
+        self._apply_defaults()
 
-def create_validator(config):
-    def validate(value):
-        if not isinstance(value, str):
-            return False
-        if len(value) < config["min_length"] or len(value) > config["max_length"]:
-            return False
-        for char in value:
-            if char not in config["allowed_chars"]:
-                return False
-        return True
-    return validate
+    def load(self, filepath: str) -> None:
+        path = Path(filepath)
+        if path.is_file():
+            with open(path, "r", encoding="utf-8") as f:
+                self.data = json.load(f)
+        else:
+            self.data = {}
 
-validator = create_validator(CONFIG)
+    def _apply_defaults(self) -> None:
+        def merge(target: Dict[str, Any], source: Dict[str, Any]) -> Dict[str, Any]:
+            for k, v in source.items():
+                if k not in target:
+                    target[k] = v
+                elif isinstance(target[k], dict) and isinstance(v, dict):
+                    target[k] = merge(target[k], v)
+            return target
+        self.data = merge(self.data, self.defaults)
 
-def unusual_validation_chain(value, validators):
-    def apply(acc, func):
-        return acc and func(value)
-    return reduce(apply, validators, True)
+    def get(self, key: str, default: Any = None) -> Any:
+        keys = key.split(".")
+        current = self.data
+        for k in keys:
+            if isinstance(current, dict) and k in current:
+                current = current[k]
+            else:
+                return default
+        return current
 
-def process_data(data_list):
-    processed = []
-    index = 0
-    while index < len(data_list) and index < CONFIG["max_items"]:
-        current = data_list[index]
-        if unusual_validation_chain(current, [validator]):
-            processed.append(current.upper())
-        index += 1
-    return processed
+    def __getattr__(self, name: str) -> Any:
+        if name.startswith("_"):
+            raise AttributeError
+        if name in self.data:
+            val = self.data[name]
+            if isinstance(val, dict):
+                return ConfigLoader(defaults=val)
+            return val
+        raise AttributeError(f"No attribute {name}")
 
-def main_processing_loop():
-    if len(sys.argv) > 1:
-        raw_inputs = sys.argv[1:]
-    else:
-        raw_inputs = ["abc123", "invalid!", "test", "123abc", "toolong" * 10, "another"]
-    valid_processed = process_data(raw_inputs)
-    print("Processed items:", valid_processed)
-    print("Count:", len(valid_processed))
+    def set(self, key: str, value: Any) -> None:
+        keys = key.split(".")
+        current = self.data
+        for k in keys[:-1]:
+            if k not in current or not isinstance(current[k], dict):
+                current[k] = {}
+            current = current[k]
+        current[keys[-1]] = value
+
+    def save(self, filepath: str) -> None:
+        with open(filepath, "w", encoding="utf-8") as f:
+            json.dump(self.data, f, indent=2)
+
+    def __repr__(self) -> str:
+        return f"<ConfigLoader {self.data}>"
 
 if __name__ == "__main__":
-    main_processing_loop()
+    defaults = {"server": {"host": "127.0.0.1", "port": 8080}, "debug": False}
+    config = ConfigLoader(defaults=defaults)
+    print(config.server.host)
+    print(config.get("debug"))
+    config.set("server.port", 9000)
+    print(config.get("server.port"))
