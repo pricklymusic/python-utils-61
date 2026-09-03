@@ -1,45 +1,30 @@
-import functools
 import time
-from typing import Callable, Any
+import random
+import functools
+from typing import Callable, Any, Tuple, Type
 
-def compose(*functions: Callable) -> Callable:
-    return lambda x: functools.reduce(lambda v, f: f(v), functions, x)
+def backoff_generator(base_delay: float = 1.0, max_delay: float = 60.0, factor: float = 2.0):
+    delay = base_delay
+    while True:
+        yield random.uniform(0, min(max_delay, delay))
+        delay *= factor
 
-def memoize_with_expiry(ttl: int) -> Callable:
-    def decorator(func: Callable) -> Callable:
-        cache = {}
+def retry_network_op(
+    max_retries: int = 3,
+    exceptions: Tuple[Type[BaseException], ...] = (Exception,),
+    base_delay: float = 0.5
+):
+    """Decorator applying exponential jitter backoff to network functions."""
+    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
         @functools.wraps(func)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
-            key = (args, frozenset(kwargs.items()))
-            now = time.time()
-            if key in cache and (now - cache[key][1] < ttl):
-                return cache[key][0]
-            result = func(*args, **kwargs)
-            cache[key] = (result, now)
-            return result
-        return wrapper
-    return decorator
-
-def retry(attempts: int, delay: float) -> Callable:
-    def decorator(func: Callable) -> Callable:
-        @functools.wraps(func)
-        def wrapper(*args: Any, **kwargs: Any) -> Any:
-            last_ex = None
-            for _ in range(attempts):
+            delays = backoff_generator(base_delay=base_delay)
+            for attempt in range(1, max_retries + 1):
                 try:
                     return func(*args, **kwargs)
-                except Exception as e:
-                    last_ex = e
-                    time.sleep(delay)
-            raise last_ex
+                except exceptions as err:
+                    if attempt == max_retries:
+                        raise err
+                    time.sleep(next(delays))
         return wrapper
     return decorator
-
-def flatten(nested_list: list) -> list:
-    flat = []
-    for item in nested_list:
-        if isinstance(item, list):
-            flat.extend(flatten(item))
-        else:
-            flat.append(item)
-    return flat
