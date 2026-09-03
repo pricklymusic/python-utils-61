@@ -1,42 +1,49 @@
-import logging
-from logging.handlers import RotatingFileHandler
-from pathlib import Path
+import sys
+import time
+from collections import deque
+from typing import Any, Callable, Dict, List, Optional
 
-class LoggerSetup:
-    def __init__(self, app_name="utils61", log_file="app.log", max_bytes=5242880, backups=3):
-        self.app_name = app_name
-        self.log_file = Path(log_file)
-        self.max_bytes = max_bytes
-        self.backups = backups
-        self.logger = None
-        self._initialize_logger()
 
-    def _initialize_logger(self):
-        self.log_file.parent.mkdir(parents=True, exist_ok=True)
-        self.logger = logging.getLogger(self.app_name)
-        self.logger.setLevel(logging.DEBUG)
-        for h in list(self.logger.handlers):
-            self.logger.removeHandler(h)
-            h.close()
+class LogEvent:
+    def __init__(self, level: str, message: str, **context: Any) -> None:
+        self.timestamp = time.time()
+        self.level = level.upper()
+        self.message = message
+        self.context = context
 
-        rotating_handler = RotatingFileHandler(
-            str(self.log_file),
-            maxBytes=self.max_bytes,
-            backupCount=self.backups,
-            encoding="utf-8"
-        )
-        rotating_handler.setLevel(logging.INFO)
-        rotating_handler.setFormatter(logging.Formatter(
-            "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-        ))
-        self.logger.addHandler(rotating_handler)
+    def __str__(self) -> str:
+        iso_time = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(self.timestamp))
+        extra = f" | ctx={self.context}" if self.context else ""
+        return f"[{iso_time}] [{self.level}] {self.message}{extra}"
 
-        stream_handler = logging.StreamHandler()
-        stream_handler.setLevel(logging.WARNING)
-        stream_handler.setFormatter(logging.Formatter("%(levelname)s: %(message)s"))
-        self.logger.addHandler(stream_handler)
 
-    def get_logger(self):
-        if self.logger is None:
-            self._initialize_logger()
-        return self.logger
+class DynamicLogger:
+    def __init__(self, buffer_size: int = 100, sink: Optional[Callable[[str], None]] = None) -> None:
+        self._buffer: deque[LogEvent] = deque(maxlen=buffer_size)
+        self._sink = sink or sys.stderr.write
+
+    def _dispatch(self, level: str, msg: str, **kwargs: Any) -> LogEvent:
+        event = LogEvent(level, msg, **kwargs)
+        self._buffer.append(event)
+        self._sink(f"{event}\n")
+        return event
+
+    def __getattr__(self, name: str) -> Callable[..., LogEvent]:
+        if name.startswith("_"):
+            raise AttributeError(f"'{type(self).__name__}' has no attribute '{name}'")
+        return lambda msg, **kwargs: self._dispatch(name, msg, **kwargs)
+
+    def recent_events(self, limit: int = 10) -> List[Dict[str, Any]]:
+        events = list(self._buffer)[-limit:]
+        return [
+            {
+                "timestamp": e.timestamp,
+                "level": e.level,
+                "message": e.message,
+                "context": e.context,
+            }
+            for e in events
+        ]
+
+    def clear_buffer(self) -> None:
+        self._buffer.clear()
