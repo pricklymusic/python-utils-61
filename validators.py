@@ -1,31 +1,30 @@
-import re
-from typing import Any, Dict, Union
+from typing import Any, Callable, Dict, List, Union
 
-class InputValidator:
-    def __init__(self, constraints: Dict[str, Union[type, int]]):
-        self.constraints = constraints
+class DataValidator:
+    """Dynamic predicate-based schema validator for nested dicts."""
+    def __init__(self, schema: Dict[str, Callable[[Any], bool]]):
+        self.schema = schema
 
-    def validate(self, input_data: Dict[str, Any]) -> bool:
-        for key, value in self.constraints.items():
-            if key not in input_data:
-                return False
-            if isinstance(value, type):
-                if not isinstance(input_data[key], value):
-                    return False
-            elif isinstance(value, int):
-                if len(input_data[key]) != value:
-                    return False
-        return True
+    def __call__(self, data: Dict[str, Any]) -> bool:
+        return all(key in data and self.schema[key](data[key]) for key in self.schema)
 
-if __name__ == '__main__':
-    constraints = {
-        'username': str,
-        'password': str,
-        'age': int,
-    }
-    validator = InputValidator(constraints)
-    input_data = {'username': 'user', 'password': 'pass123', 'age': 25}
-    if validator.validate(input_data):
-        print('Input is valid')
-    else:
-        print('Input is invalid')
+    @classmethod
+    def compose(cls, *validators: 'DataValidator') -> Callable[[Dict], bool]:
+        return lambda data: all(v(data) for v in validators)
+
+def type_check(t: type) -> Callable[[Any], bool]:
+    return lambda val: isinstance(val, t)
+
+def range_check(min_val: float, max_val: float) -> Callable[[Any], bool]:
+    return lambda val: isinstance(val, (int, float)) and min_val <= val <= max_val
+
+def match_regex(pattern: str) -> Callable[[Any], bool]:
+    import re
+    return lambda val: isinstance(val, str) and bool(re.match(pattern, val))
+
+def validate_collection(validator: Callable[[Any], bool]) -> Callable[[Any], bool]:
+    return lambda collection: isinstance(collection, (list, tuple, set)) and all(validator(item) for item in collection)
+
+# Example usage: 
+# v = DataValidator({'age': range_check(0, 120), 'tags': validate_collection(type_check(str))})
+# v({'age': 25, 'tags': ['dev', 'python']}) -> True
