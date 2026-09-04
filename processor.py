@@ -1,48 +1,41 @@
-import collections
+import logging
+from typing import Any, Callable, Dict
 
-class Processor:
-    """Creative data processor with reorganization via deque operations."""
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger('processor')
 
-    def __init__(self, raw_data):
-        self._data = collections.deque(raw_data)
+class DataValidator:
+    def __init__(self, schema: Dict[str, type]):
+        self.schema = schema
 
-    def _deduplicate(self, data):
-        counts = collections.Counter(data)
-        return [item for item in data if counts[item] == 1]
+    def validate(self, data: Any) -> bool:
+        if not isinstance(data, dict):
+            return False
+        return all(isinstance(data.get(k), v) for k, v in self.schema.items())
 
-    def cleanup(self):
-        temp = [x for x in self._data if x]
-        self._data = collections.deque(self._deduplicate(temp))
-        return self
+def process_stream(data_source: list, transform_func: Callable[[dict], None]) -> None:
+    """
+    Main processing loop with aggressive input sanitation.
+    """
+    schema = {'id': int, 'payload': str}
+    validator = DataValidator(schema)
 
-    def reorganize(self):
-        if not self._data:
-            return self
-        lst = list(self._data)
-        mid = len(lst) // 2
-        first_half = lst[:mid][::-1]
-        second_half = lst[mid:]
-        interleaved = []
-        for i in range(max(len(first_half), len(second_half))):
-            if i < len(first_half):
-                interleaved.append(first_half[i])
-            if i < len(second_half):
-                interleaved.append(second_half[i])
-        self._data = collections.deque(interleaved)
-        return self
+    for item in data_source:
+        try:
+            if not validator.validate(item):
+                logger.warning(f"Discarding malformed packet: {item}")
+                continue
+            
+            # Execute transformation with internal sanity checks
+            if len(item['payload']) > 1024:
+                raise ValueError("Payload exceeds max buffer limit")
+                
+            transform_func(item)
+            
+        except Exception as e:
+            logger.error(f"Critical loop failure: {str(e)}")
+            continue
 
-    def apply(self, operation):
-        self._data = collections.deque(operation(item) for item in self._data)
-        return self
-
-    def finalize(self):
-        return list(self._data)
-
-def main():
-    sample = [0, 1, 2, 2, 3, 4, 5, 0, 6, 7, 7, 8]
-    p = Processor(sample)
-    result = p.cleanup().reorganize().apply(lambda x: x + 10).finalize()
-    print(result)
-
-if __name__ == "__main__":
-    main()
+if __name__ == '__main__':
+    mock_data = [{'id': 1, 'payload': 'init'}, {'id': 'fail', 'payload': 123}, {'id': 2, 'payload': 'data'}]
+    process_stream(mock_data, lambda x: logger.info(f"Processed: {x['id']}"))
