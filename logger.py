@@ -1,24 +1,30 @@
-import sys
-import datetime
-from typing import Any, Optional, TextIO
+import time
+import collections
+from functools import lru_cache
 
-class CreativeLogger:
-    """An unconventional logger that pipes output to specific streams."""
+class FastLogger:
+    def __init__(self, limit=1000):
+        self.limit = limit
+        self.buffer = collections.deque(maxlen=limit)
+        self._write = self._optimized_write()
 
-    def __init__(self, prefix: str = "LOG", stream: TextIO = sys.stdout) -> None:
-        self.prefix: str = prefix
-        self.stream: TextIO = stream
+    def _optimized_write(self):
+        cache = {}
+        def sink(msg):
+            ts = int(time.time())
+            if ts not in cache:
+                cache[ts] = f"[{ts}] "
+            return cache[ts] + msg
+        return sink
 
-    def emit(self, message: Any, level: str = "INFO") -> None:
-        """Formats and dispatches a message to the configured stream."""
-        timestamp: str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        payload: str = f"[{timestamp}] {self.prefix} | {level.upper()} | {message}"
-        print(payload, file=self.stream)
+    def log(self, message):
+        formatted = self._write(message)
+        self.buffer.append(formatted)
+        return formatted
 
-    def __call__(self, *args: Any, **kwargs: Any) -> None:
-        """Allows the logger instance to act as a functional printer."""
-        self.emit(" ".join(map(str, args)))
+    def flush(self):
+        content = "\n".join(self.buffer)
+        self.buffer.clear()
+        return content
 
-def get_logger(name: str, output: Optional[TextIO] = None) -> CreativeLogger:
-    """Factory function for creating scoped logger instances."""
-    return CreativeLogger(prefix=name, stream=output or sys.stdout)
+logger = FastLogger()
