@@ -1,32 +1,33 @@
-import json
+import logging
+import os
+import gzip
+from logging.handlers import RotatingFileHandler
 
-class JSONHandler:
-    def __init__(self, filename):
-        self.filename = filename
+class CompressedRotatingFileHandler(RotatingFileHandler):
+    def rotation_filename(self, default_name):
+        return default_name + ".gz"
 
-    def read_data(self):
-        with open(self.filename, 'r') as file:
-            return json.load(file)
+    def rotate(self, source, dest):
+        with open(source, 'rb') as f_in:
+            with gzip.open(dest, 'wb') as f_out:
+                f_out.writelines(f_in)
+        os.remove(source)
 
-    def write_data(self, data):
-        with open(self.filename, 'w') as file:
-            json.dump(data, file, indent=4)
-
-    def update_data(self, key, value):
-        data = self.read_data()
-        data[key] = value
-        self.write_data(data)
-
-    def delete_key(self, key):
-        data = self.read_data()
-        if key in data:
-            del data[key]
-            self.write_data(data)
-
-# Example Usage:
-if __name__ == '__main__':
-    handler = JSONHandler('data.json')
-    handler.write_data({'name': 'John', 'age': 30})
-    handler.update_data('age', 31)
-    handler.delete_key('name')
-    print(handler.read_data())
+def setup_logger(name: str, log_file: str, max_bytes: int = 1048576, backup_count: int = 5) -> logging.Logger:
+    logger = logging.getLogger(name)
+    logger.setLevel(logging.DEBUG)
+    if not logger.handlers:
+        formatter = logging.Formatter(
+            '%(asctime)s - %(name)s - [%(levelname)s] - %(message)s'
+        )
+        file_handler = CompressedRotatingFileHandler(
+            log_file, maxBytes=max_bytes, backupCount=backup_count, encoding='utf-8'
+        )
+        file_handler.setFormatter(formatter)
+        file_handler.setLevel(logging.INFO)
+        stream_handler = logging.StreamHandler()
+        stream_handler.setFormatter(formatter)
+        stream_handler.setLevel(logging.DEBUG)
+        logger.addHandler(file_handler)
+        logger.addHandler(stream_handler)
+    return logger
