@@ -1,58 +1,33 @@
-import json
 import os
-from typing import Any, Dict, Optional
+import json
+from typing import Any, Dict
 
-def load_config(filepath: str = "config.json") -> Dict[str, Any]:
-    if os.path.isfile(filepath):
-        with open(filepath, "r") as file:
-            return json.load(file)
-    return {}
+class ConfigLoader:
+    def __init__(self, defaults: Dict[str, Any], env_prefix: str = "APP_"):
+        self._data = defaults.copy()
+        self._prefix = env_prefix
 
-def deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
-    result = base.copy()
-    for key, value in override.items():
-        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
-            result[key] = deep_merge(result[key], value)
-        else:
-            result[key] = value
-    return result
+    def load_from_json(self, path: str) -> None:
+        if os.path.exists(path):
+            with open(path, "r") as f:
+                self._data.update(json.load(f))
 
-def get_nested_config(config: Dict[str, Any], path: str, default: Optional[Any] = None) -> Any:
-    keys = path.split(".")
-    current = config
-    for key in keys:
-        if isinstance(current, dict) and key in current:
-            current = current[key]
-        else:
-            return default
-    return current
+    def __getattr__(self, name: str) -> Any:
+        env_val = os.environ.get(f"{self._prefix}{name.upper()}")
+        if env_val is not None:
+            return self._cast(env_val)
+        return self._data.get(name)
 
-def update_config(config: Dict[str, Any], updates: Dict[str, Any]) -> Dict[str, Any]:
-    return deep_merge(config, updates)
+    def _cast(self, val: str) -> Any:
+        if val.lower() in ("true", "yes"): return True
+        if val.lower() in ("false", "no"): return False
+        try:
+            return int(val) if val.isdigit() else float(val)
+        except ValueError:
+            return val
 
-def save_config(config: Dict[str, Any], filepath: str = "config.json") -> None:
-    with open(filepath, "w") as file:
-        json.dump(config, file, indent=2)
+    def __getitem__(self, key: str) -> Any:
+        return self.__getattr__(key)
 
-def flatten_config(config: Dict[str, Any], sep: str = ".") -> Dict[str, Any]:
-    flat = {}
-    stack = [(config, "")]
-    while stack:
-        current, prefix = stack.pop()
-        for k, v in current.items():
-            new_key = f"{prefix}{sep}{k}" if prefix else k
-            if isinstance(v, dict):
-                stack.append((v, new_key))
-            else:
-                flat[new_key] = v
-    return flat
-
-def set_nested_config(config: Dict[str, Any], path: str, value: Any) -> Dict[str, Any]:
-    keys = path.split(".")
-    current = config
-    for key in keys[:-1]:
-        if key not in current or not isinstance(current[key], dict):
-            current[key] = {}
-        current = current[key]
-    current[keys[-1]] = value
-    return config
+    def keys(self):
+        return self._data.keys()
