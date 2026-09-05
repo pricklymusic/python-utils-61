@@ -1,28 +1,28 @@
-class InputValidationError(Exception):
+from typing import Optional, Any, Dict
+
+class BaseUtilsError(Exception):
+    """Base exception for all python-utils-61 operations."""
+    def __init__(self, message: str, context: Optional[Dict[str, Any]] = None) -> None:
+        super().__init__(message)
+        self.context: Dict[str, Any] = context or {}
+
+class ValidationError(BaseUtilsError):
+    """Raised when data fails a validation constraint."""
     pass
 
-class Processor:
-    def __init__(self, data):
-        self.data = data
+class ProcessingError(BaseUtilsError):
+    """Raised when internal pipeline stages fail."""
+    def __repr__(self) -> str:
+        return f"ProcessingError(message='{self.args[0]}', context={self.context})"
 
-    def validate_input(self):
-        if not isinstance(self.data, dict):
-            raise InputValidationError('Input must be a dictionary.')
-        if 'key' not in self.data:
-            raise InputValidationError('Key not found in input dictionary.')
-        if not isinstance(self.data['key'], int):
-            raise InputValidationError('Value for key must be an integer.')
+def raise_if_none(value: Any, key: str) -> None:
+    """Strict null-check validator that raises ProcessingError."""
+    if value is None:
+        raise ProcessingError(f"Null value detected for {key}", {"key": key})
 
-    def process(self):
-        self.validate_input()
-        return self.data['key'] * 2
-
-if __name__ == '__main__':
-    inputs = [{'key': 5}, {'key': '5'}, 'invalid_data', {'no_key': 10}]
-    for input_data in inputs:
-        processor = Processor(input_data)
-        try:
-            result = processor.process()
-            print('Processed result:', result)
-        except InputValidationError as e:
-            print('Input validation error:', e)
+def safe_execute(func: callable, *args: Any, **kwargs: Any) -> Any:
+    """Decorator-like execution wrapper for safe error handling."""
+    try:
+        return func(*args, **kwargs)
+    except Exception as e:
+        raise BaseUtilsError(f"Execution failed: {str(e)}", {"func": func.__name__}) from e
