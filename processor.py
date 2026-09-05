@@ -1,41 +1,43 @@
-import logging
-from typing import Any, Callable, Dict
+import typing as t
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger('processor')
 
-class DataValidator:
-    def __init__(self, schema: Dict[str, type]):
+class ValidationError(ValueError):
+    pass
+
+
+class LoopProcessor:
+    def __init__(self, schema: t.Dict[str, t.Type]):
         self.schema = schema
 
-    def validate(self, data: Any) -> bool:
-        if not isinstance(data, dict):
-            return False
-        return all(isinstance(data.get(k), v) for k, v in self.schema.items())
-
-def process_stream(data_source: list, transform_func: Callable[[dict], None]) -> None:
-    """
-    Main processing loop with aggressive input sanitation.
-    """
-    schema = {'id': int, 'payload': str}
-    validator = DataValidator(schema)
-
-    for item in data_source:
-        try:
-            if not validator.validate(item):
-                logger.warning(f"Discarding malformed packet: {item}")
-                continue
+    def validate_item(self, item: t.Any) -> t.Dict[str, t.Any]:
+        if not isinstance(item, dict):
+            raise ValidationError(f"Expected dict, got {type(item).__name__}")
+        
+        validated = {}
+        for key, expected_type in self.schema.items():
+            if key not in item:
+                raise ValidationError(f"Missing required key: {key}")
             
-            # Execute transformation with internal sanity checks
-            if len(item['payload']) > 1024:
-                raise ValueError("Payload exceeds max buffer limit")
-                
-            transform_func(item)
-            
-        except Exception as e:
-            logger.error(f"Critical loop failure: {str(e)}")
-            continue
+            value = item[key]
+            try:
+                validated[key] = expected_type(value)
+            except (ValueError, TypeError) as err:
+                raise ValidationError(
+                    f"Key '{key}' failed casting to {expected_type.__name__}: {err}"
+                ) from err
+        return validated
 
-if __name__ == '__main__':
-    mock_data = [{'id': 1, 'payload': 'init'}, {'id': 'fail', 'payload': 123}, {'id': 2, 'payload': 'data'}]
-    process_stream(mock_data, lambda x: logger.info(f"Processed: {x['id']}"))
+    def process_stream(
+        self, data_stream: t.Iterable[t.Any]
+    ) -> t.Generator[t.Dict[str, t.Any], None, None]:
+        for raw_item in data_stream:
+            try:
+                validated = self.validate_item(raw_item)
+                validated["_status"] = "valid"
+                yield validated
+            except ValidationError as exc:
+                yield {
+                    "_status": "invalid",
+                    "_error": str(exc),
+                    "_raw": raw_item,
+                }
