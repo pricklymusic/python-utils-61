@@ -1,42 +1,38 @@
-import logging
-from logging.handlers import RotatingFileHandler
+import json
 import os
-from pathlib import Path
-from datetime import datetime
+from typing import Any, Dict
 
-def setup_rotating_logger(
-    name: str = "app",
-    file_path: str = "logs/app.log",
-    max_bytes: int = 5 * 1024 * 1024,
-    backup_count: int = 3,
-    level: int = logging.INFO
-) -> logging.Logger:
-    logger = logging.getLogger(name)
-    if logger.hasHandlers():
-        logger.handlers.clear()
-    log_dir = Path(file_path).parent
-    if str(log_dir) != ".":
-        log_dir.mkdir(parents=True, exist_ok=True)
-    rotating_handler = RotatingFileHandler(
-        filename=file_path,
-        maxBytes=max_bytes,
-        backupCount=backup_count,
-        encoding="utf-8"
-    )
-    rotating_handler.setLevel(level)
-    formatter = logging.Formatter(
-        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    )
-    rotating_handler.setFormatter(formatter)
-    logger.addHandler(rotating_handler)
-    console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.WARNING)
-    console_formatter = logging.Formatter("%(levelname)s: %(message)s")
-    console_handler.setFormatter(console_formatter)
-    logger.addHandler(console_handler)
-    logger.setLevel(level)
-    logger.info(f"Rotating logger setup completed at {datetime.now().isoformat()}")
-    return logger
+class ConfigLoader:
+    def __init__(self, defaults: Dict[str, Any]):
+        self._data = defaults.copy()
 
-def get_rotating_logger(name: str = "app") -> logging.Logger:
-    return logging.getLogger(name)
+    def load(self, path: str) -> 'ConfigLoader':
+        if os.path.exists(path):
+            try:
+                with open(path, 'r') as f:
+                    self._data.update(json.load(f))
+            except (json.JSONDecodeError, IOError):
+                pass
+        return self
+
+    def __getattr__(self, name: str) -> Any:
+        if name not in self._data:
+            raise AttributeError(f'Config key {name} missing')
+        return self._data[name]
+
+    def __getitem__(self, key: str) -> Any:
+        return self._data[key]
+
+    def env_override(self, prefix: str = 'APP_') -> 'ConfigLoader':
+        for key in self._data.keys():
+            env_key = f'{prefix}{key.upper()}'
+            if env_key in os.environ:
+                val = os.environ[env_key]
+                try:
+                    self._data[key] = json.loads(val)
+                except json.JSONDecodeError:
+                    self._data[key] = val
+        return self
+
+def load_configuration(defaults: Dict[str, Any], path: str = 'config.json') -> ConfigLoader:
+    return ConfigLoader(defaults).load(path).env_override()
