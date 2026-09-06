@@ -1,28 +1,35 @@
-from typing import Optional, Any, Dict
-
-class BaseUtilsError(Exception):
-    """Base exception for all python-utils-61 operations."""
-    def __init__(self, message: str, context: Optional[Dict[str, Any]] = None) -> None:
+class BaseUtilityError(Exception):
+    """Base exception for python-utils-61"""
+    def __init__(self, message, payload=None):
         super().__init__(message)
-        self.context: Dict[str, Any] = context or {}
+        self.payload = payload or {}
 
-class ValidationError(BaseUtilsError):
-    """Raised when data fails a validation constraint."""
-    pass
+class ValidationError(BaseUtilityError):
+    """Raised when inputs fail structural checks"""
 
-class ProcessingError(BaseUtilsError):
-    """Raised when internal pipeline stages fail."""
-    def __repr__(self) -> str:
-        return f"ProcessingError(message='{self.args[0]}', context={self.context})"
+class ConfigurationError(BaseUtilityError):
+    """Raised on missing or invalid configuration keys"""
 
-def raise_if_none(value: Any, key: str) -> None:
-    """Strict null-check validator that raises ProcessingError."""
-    if value is None:
-        raise ProcessingError(f"Null value detected for {key}", {"key": key})
+class ExecutionTimeout(BaseUtilityError):
+    """Raised when processes exceed temporal limits"""
 
-def safe_execute(func: callable, *args: Any, **kwargs: Any) -> Any:
-    """Decorator-like execution wrapper for safe error handling."""
-    try:
-        return func(*args, **kwargs)
-    except Exception as e:
-        raise BaseUtilsError(f"Execution failed: {str(e)}", {"func": func.__name__}) from e
+def raise_if(condition, exception_type, message, **kwargs):
+    """Inline exception trigger for clean flow control"""
+    if condition:
+        raise exception_type(message, payload=kwargs)
+
+class ExceptionStack:
+    """Registry for tracking caught utility exceptions"""
+    _history = []
+
+    @classmethod
+    def record(cls, exc):
+        cls._history.append({
+            'type': type(exc).__name__,
+            'msg': str(exc),
+            'data': getattr(exc, 'payload', {})
+        })
+
+    @classmethod
+    def clear(cls):
+        cls._history.clear()
