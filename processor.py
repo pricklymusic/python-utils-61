@@ -1,43 +1,37 @@
-import typing as t
+import os
+import logging
+from logging.handlers import RotatingFileHandler
+import gzip
+import shutil
 
-
-class ValidationError(ValueError):
-    pass
-
-
-class LoopProcessor:
-    def __init__(self, schema: t.Dict[str, t.Type]):
-        self.schema = schema
-
-    def validate_item(self, item: t.Any) -> t.Dict[str, t.Any]:
-        if not isinstance(item, dict):
-            raise ValidationError(f"Expected dict, got {type(item).__name__}")
-        
-        validated = {}
-        for key, expected_type in self.schema.items():
-            if key not in item:
-                raise ValidationError(f"Missing required key: {key}")
-            
-            value = item[key]
+class GzipRotatingFileHandler(RotatingFileHandler):
+    def doRollover(self):
+        super().doRollover()
+        old_log = self.baseFilename + ".1"
+        if os.path.exists(old_log):
+            compressed_log = f"{old_log}.gz"
             try:
-                validated[key] = expected_type(value)
-            except (ValueError, TypeError) as err:
-                raise ValidationError(
-                    f"Key '{key}' failed casting to {expected_type.__name__}: {err}"
-                ) from err
-        return validated
+                with open(old_log, "rb") as f_in:
+                    with gzip.open(compressed_log, "wb") as f_out:
+                        shutil.copyfileobj(f_in, f_out)
+                os.remove(old_log)
+            except Exception:
+                pass
 
-    def process_stream(
-        self, data_stream: t.Iterable[t.Any]
-    ) -> t.Generator[t.Dict[str, t.Any], None, None]:
-        for raw_item in data_stream:
-            try:
-                validated = self.validate_item(raw_item)
-                validated["_status"] = "valid"
-                yield validated
-            except ValidationError as exc:
-                yield {
-                    "_status": "invalid",
-                    "_error": str(exc),
-                    "_raw": raw_item,
-                }
+def setup_logger(name: str, log_file: str = "app.log") -> logging.Logger:
+    logger = logging.getLogger(name)
+    logger.setLevel(logging.DEBUG)
+    formatter = logging.Formatter(
+        "[%(asctime)s] %(levelname)s [%(name)s:%(lineno)d] - %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S"
+    )
+    handler = GzipRotatingFileHandler(log_file, maxBytes=1024, backupCount=3, encoding="utf-8")
+    handler.setFormatter(formatter)
+    if not logger.handlers:
+        logger.addHandler(handler)
+    return logger
+
+if __name__ == "__main__":
+    log = setup_logger("processor")
+    for i in range(100):
+        log.info(f"Processing tracking entry index: {i}")
