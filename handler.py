@@ -1,44 +1,26 @@
-import functools
-from typing import Any, Callable, Dict, Union
+import logging
 
-class DataPipeline:
-    def __init__(self, data: Any):
-        self._data = data
+def validate_payload(data):
+    if not isinstance(data, dict):
+        raise ValueError('payload must be a dictionary')
+    if 'id' not in data or not isinstance(data['id'], int):
+        raise KeyError('missing or invalid id field')
+    return True
 
-    def apply(self, func: Callable[[Any], Any]) -> 'DataPipeline':
-        self._data = func(self._data)
-        return self
+def process_stream(input_stream):
+    logger = logging.getLogger('handler')
+    results = []
+    for entry in input_stream:
+        try:
+            if validate_payload(entry):
+                payload = entry.get('data', {})
+                results.append({'status': 'ok', 'processed': payload})
+        except (ValueError, KeyError) as e:
+            logger.error(f'dropped corrupt packet: {e}')
+            continue
+    return results
 
-    def get(self) -> Any:
-        return self._data
-
-def flexible_caster(target_type: type):
-    def decorator(func: Callable):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            result = func(*args, **kwargs)
-            try:
-                return target_type(result)
-            except (ValueError, TypeError):
-                return None
-        return wrapper
-    return decorator
-
-@flexible_caster(int)
-def extract_digit(value: str) -> str:
-    return ''.join(filter(str.isdigit, value))
-
-def deep_update(base: Dict, updates: Dict) -> Dict:
-    for key, value in updates.items():
-        if isinstance(value, dict) and key in base:
-            base[key] = deep_update(base.get(key, {}), value)
-        else:
-            base[key] = value
-    return base
-
-def sanitize_input(data: Any) -> Any:
-    pipeline = DataPipeline(data)
-    return (pipeline
-            .apply(lambda x: str(x).strip() if isinstance(x, str) else x)
-            .apply(lambda x: x.lower() if isinstance(x, str) else x)
-            .get())
+if __name__ == '__main__':
+    mock_data = [{'id': 1, 'data': 'val1'}, 'corrupt', {'id': 2, 'data': 'val2'}]
+    processed = process_stream(mock_data)
+    print(f'Final batch size: {len(processed)}')
