@@ -1,33 +1,44 @@
-import logging
-import os
-import gzip
-from logging.handlers import RotatingFileHandler
+import functools
+from typing import Any, Callable, Dict, Union
 
-class CompressedRotatingFileHandler(RotatingFileHandler):
-    def rotation_filename(self, default_name):
-        return default_name + ".gz"
+class DataPipeline:
+    def __init__(self, data: Any):
+        self._data = data
 
-    def rotate(self, source, dest):
-        with open(source, 'rb') as f_in:
-            with gzip.open(dest, 'wb') as f_out:
-                f_out.writelines(f_in)
-        os.remove(source)
+    def apply(self, func: Callable[[Any], Any]) -> 'DataPipeline':
+        self._data = func(self._data)
+        return self
 
-def setup_logger(name: str, log_file: str, max_bytes: int = 1048576, backup_count: int = 5) -> logging.Logger:
-    logger = logging.getLogger(name)
-    logger.setLevel(logging.DEBUG)
-    if not logger.handlers:
-        formatter = logging.Formatter(
-            '%(asctime)s - %(name)s - [%(levelname)s] - %(message)s'
-        )
-        file_handler = CompressedRotatingFileHandler(
-            log_file, maxBytes=max_bytes, backupCount=backup_count, encoding='utf-8'
-        )
-        file_handler.setFormatter(formatter)
-        file_handler.setLevel(logging.INFO)
-        stream_handler = logging.StreamHandler()
-        stream_handler.setFormatter(formatter)
-        stream_handler.setLevel(logging.DEBUG)
-        logger.addHandler(file_handler)
-        logger.addHandler(stream_handler)
-    return logger
+    def get(self) -> Any:
+        return self._data
+
+def flexible_caster(target_type: type):
+    def decorator(func: Callable):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            result = func(*args, **kwargs)
+            try:
+                return target_type(result)
+            except (ValueError, TypeError):
+                return None
+        return wrapper
+    return decorator
+
+@flexible_caster(int)
+def extract_digit(value: str) -> str:
+    return ''.join(filter(str.isdigit, value))
+
+def deep_update(base: Dict, updates: Dict) -> Dict:
+    for key, value in updates.items():
+        if isinstance(value, dict) and key in base:
+            base[key] = deep_update(base.get(key, {}), value)
+        else:
+            base[key] = value
+    return base
+
+def sanitize_input(data: Any) -> Any:
+    pipeline = DataPipeline(data)
+    return (pipeline
+            .apply(lambda x: str(x).strip() if isinstance(x, str) else x)
+            .apply(lambda x: x.lower() if isinstance(x, str) else x)
+            .get())
