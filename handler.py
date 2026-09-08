@@ -1,32 +1,64 @@
-import functools
-from typing import Any, Callable, Dict, List, Union
+"""Pipeline handler module providing chainable function execution."""
 
-class DataFlux:
-    """An unconventional conduit for dictionary transformation and path extraction."""
-    def __init__(self, data: Dict[str, Any]):
-        self._data = data
+from typing import TypeVar, Callable, Generic, Any, List, Optional, Tuple, Union
 
-    def __getitem__(self, path: str) -> Any:
-        return functools.reduce(lambda d, key: d.get(key, {}) if isinstance(d, dict) else None, path.split('.'), self._data)
+T = TypeVar("T")
+R = TypeVar("R")
 
-    def collapse(self, separator: str = '_') -> Dict[str, Any]:
-        out = {}
-        def _rec(curr: Any, prefix: List[str]):
-            if isinstance(curr, dict):
-                for k, v in curr.items():
-                    _rec(v, prefix + [k])
-            else:
-                out[separator.join(prefix)] = curr
-        _rec(self._data, [])
-        return out
 
-    def filter_keys(self, predicate: Callable[[str], bool]) -> Dict[str, Any]:
-        return {k: v for k, v in self.collapse().items() if predicate(k)}
+class Step(Generic[T, R]):
+    """A typed wrapper around a callable representing a processing step.
 
-def stream_process(data: Union[Dict, List], transform: Callable) -> Any:
-    """Functional pipe for recursive data structure processing."""
-    if isinstance(data, dict):
-        return {k: stream_process(v, transform) for k, v in data.items()}
-    if isinstance(data, list):
-        return [stream_process(i, transform) for i in data]
-    return transform(data)
+    Attributes:
+        func: The underlying callable to be executed.
+        name: Optional descriptive label for the pipeline step.
+    """
+
+    def __init__(self, func: Callable[[T], R], name: Optional[str] = None) -> None:
+        """Initialize a pipeline step with a function and optional name."""
+        self.func: Callable[[T], R] = func
+        self.name: str = name or getattr(func, "__name__", "anonymous")
+
+    def __call__(self, arg: T) -> R:
+        """Execute the step callable with the provided argument."""
+        return self.func(arg)
+
+    def __or__(self, next_step: Union[Callable[[R], Any], "Step[R, Any]"]) -> "PipelineHandler[T, Any]":
+        """Overload bitwise OR operator to chain steps into a pipeline."""
+        pipeline = PipelineHandler[T, R]([self])
+        return pipeline | next_step
+
+
+class PipelineHandler(Generic[T, R]):
+    """A flexible pipeline handler for executing chained operations sequentially.
+
+    Supports dynamic chaining using the bitwise OR operator.
+    """
+
+    def __init__(self, steps: Optional[List[Step[Any, Any]]] = None) -> None:
+        """Initialize the handler with an optional sequence of steps."""
+        self._steps: List[Step[Any, Any]] = steps or []
+
+    def pipe(self, func: Callable[[R], Any], name: Optional[str] = None) -> "PipelineHandler[T, Any]":
+        """Append a new execution step to the current pipeline."""
+        step = func if isinstance(func, Step) else Step(func, name=name)
+        return PipelineHandler[T, Any](self._steps + [step])
+
+    def __or__(self, next_func: Union[Callable[[R], Any], Step[R, Any]]) -> "PipelineHandler[T, Any]":
+        """Overload bitwise OR operator for pipeline composition."""
+        return self.pipe(next_func if isinstance(next_func, Step) else Step(next_func))
+
+    def process(self, initial_value: T) -> Tuple[R, List[Tuple[str, Any]]]:
+        """Execute all pipeline steps sequentially on the initial value.
+
+        Returns:
+            A tuple containing the final result and an execution audit trace.
+        """
+        current_value: Any = initial_value
+        trace: List[Tuple[str, Any]] = []
+
+        for step in self._steps:
+            current_value = step(current_value)
+            trace.append((step.name, current_value))
+
+        return current_value, trace
