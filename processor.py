@@ -1,37 +1,52 @@
-import os
-import logging
-from logging.handlers import RotatingFileHandler
-import gzip
-import shutil
+import functools
+from typing import Callable, Any, Iterable, Generator
 
-class GzipRotatingFileHandler(RotatingFileHandler):
-    def doRollover(self):
-        super().doRollover()
-        old_log = self.baseFilename + ".1"
-        if os.path.exists(old_log):
-            compressed_log = f"{old_log}.gz"
+class ProcessingError(Exception):
+    """Custom exception wrapper for processor edge cases."""
+    def __init__(self, message: str, original_cause: Exception = None):
+        super().__init__(message)
+        self.original_cause = original_cause
+
+def resilient_step(fallback_val: Any = None):
+    """Decorator to trap unexpected exceptions and return a fallback value."""
+    def decorator(func: Callable):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
             try:
-                with open(old_log, "rb") as f_in:
-                    with gzip.open(compressed_log, "wb") as f_out:
-                        shutil.copyfileobj(f_in, f_out)
-                os.remove(old_log)
-            except Exception:
-                pass
+                return func(*args, **kwargs)
+            except (TypeError, ValueError, AttributeError, KeyError):
+                return fallback_val
+            except Exception as unhandled:
+                raise ProcessingError(f"Fatal anomaly in {func.__name__}", original_cause=unhandled) from unhandled
+        return wrapper
+    return decorator
 
-def setup_logger(name: str, log_file: str = "app.log") -> logging.Logger:
-    logger = logging.getLogger(name)
-    logger.setLevel(logging.DEBUG)
-    formatter = logging.Formatter(
-        "[%(asctime)s] %(levelname)s [%(name)s:%(lineno)d] - %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S"
-    )
-    handler = GzipRotatingFileHandler(log_file, maxBytes=1024, backupCount=3, encoding="utf-8")
-    handler.setFormatter(formatter)
-    if not logger.handlers:
-        logger.addHandler(handler)
-    return logger
+class SafeBatchProcessor:
+    def __init__(self, strict_mode: bool = False):
+        self.strict_mode = strict_mode
+        self.err_count = 0
 
-if __name__ == "__main__":
-    log = setup_logger("processor")
-    for i in range(100):
-        log.info(f"Processing tracking entry index: {i}")
+    @resilient_step(fallback_val=None)
+    def transform_item(self, item: Any) -> dict:
+        if item is None:
+            raise ValueError("Item cannot be None")
+        if isinstance(item, (int, float)):
+            return {"val": float(item), "type": "numeric"}
+        if isinstance(item, str):
+            return {"val": item.strip().lower(), "type": "text"}
+        if isinstance(item, dict):
+            return {k: str(v) for k, v in item.items() if not k.startswith("_")}
+        raise TypeError(f"Unsupported payload type: {type(item)}")
+
+    def process_stream(self, stream: Iterable[Any]) -> Generator[dict, None, None]:
+        for idx, element in enumerate(stream):
+            try:
+                result = self.transform_item(element)
+                if result is not None:
+                    yield result
+                elif self.strict_mode:
+                    raise ProcessingError(f"Rejected payload at index {idx}")
+            except ProcessingError as pe:
+                self.err_count += 1
+                if self.strict_mode:
+                    raise pe
