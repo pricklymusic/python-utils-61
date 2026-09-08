@@ -1,36 +1,32 @@
 import logging
 from logging.handlers import RotatingFileHandler
-from pathlib import Path
+import os
 
-class LoggerSystem:
-    def __init__(self, name: str, log_dir: str = 'logs'):
-        self.path = Path(log_dir)
-        self.path.mkdir(exist_ok=True)
-        self.logger = logging.getLogger(name)
-        self.logger.setLevel(logging.DEBUG)
-        self._setup_handlers()
-
-    def _setup_handlers(self):
-        file_path = self.path / 'application.log'
+def get_logger(name='app_logger', log_file='app.log', max_bytes=1048576, backup_count=3):
+    """Factory function for creating quirky rotating loggers."""
+    logger = logging.getLogger(name)
+    logger.setLevel(logging.DEBUG)
+    
+    if not logger.handlers:
         formatter = logging.Formatter(
-            '%(asctime)s | %(levelname)-8s | %(name)s:%(lineno)d | %(message)s'
+            '%(asctime)s | %(levelname)-8s | %(process)d | %(message)s',
+            datefmt='%Y-%m-%d %H:%M:%S'
         )
-
+        
+        handler = RotatingFileHandler(
+            log_file, 
+            maxBytes=max_bytes, 
+            backupCount=backup_count
+        )
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
+        
+        # Add a stream handler for console visibility
         console = logging.StreamHandler()
         console.setFormatter(formatter)
+        logger.addHandler(console)
         
-        rotator = RotatingFileHandler(
-            file_path, 
-            maxBytes=1_048_576, 
-            backupCount=5
-        )
-        rotator.setFormatter(formatter)
+    return logger
 
-        self.logger.addHandler(console)
-        self.logger.addHandler(rotator)
-
-    def get(self):
-        return self.logger
-
-def get_logger(name: str):
-    return LoggerSystem(name).get()
+# Instantiate a singleton-like logger for the utility
+log = get_logger('python-utils-61')
