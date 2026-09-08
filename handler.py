@@ -1,26 +1,32 @@
-import logging
+import functools
+from typing import Any, Callable, Dict, List, Union
 
-def validate_payload(data):
-    if not isinstance(data, dict):
-        raise ValueError('payload must be a dictionary')
-    if 'id' not in data or not isinstance(data['id'], int):
-        raise KeyError('missing or invalid id field')
-    return True
+class DataFlux:
+    """An unconventional conduit for dictionary transformation and path extraction."""
+    def __init__(self, data: Dict[str, Any]):
+        self._data = data
 
-def process_stream(input_stream):
-    logger = logging.getLogger('handler')
-    results = []
-    for entry in input_stream:
-        try:
-            if validate_payload(entry):
-                payload = entry.get('data', {})
-                results.append({'status': 'ok', 'processed': payload})
-        except (ValueError, KeyError) as e:
-            logger.error(f'dropped corrupt packet: {e}')
-            continue
-    return results
+    def __getitem__(self, path: str) -> Any:
+        return functools.reduce(lambda d, key: d.get(key, {}) if isinstance(d, dict) else None, path.split('.'), self._data)
 
-if __name__ == '__main__':
-    mock_data = [{'id': 1, 'data': 'val1'}, 'corrupt', {'id': 2, 'data': 'val2'}]
-    processed = process_stream(mock_data)
-    print(f'Final batch size: {len(processed)}')
+    def collapse(self, separator: str = '_') -> Dict[str, Any]:
+        out = {}
+        def _rec(curr: Any, prefix: List[str]):
+            if isinstance(curr, dict):
+                for k, v in curr.items():
+                    _rec(v, prefix + [k])
+            else:
+                out[separator.join(prefix)] = curr
+        _rec(self._data, [])
+        return out
+
+    def filter_keys(self, predicate: Callable[[str], bool]) -> Dict[str, Any]:
+        return {k: v for k, v in self.collapse().items() if predicate(k)}
+
+def stream_process(data: Union[Dict, List], transform: Callable) -> Any:
+    """Functional pipe for recursive data structure processing."""
+    if isinstance(data, dict):
+        return {k: stream_process(v, transform) for k, v in data.items()}
+    if isinstance(data, list):
+        return [stream_process(i, transform) for i in data]
+    return transform(data)
