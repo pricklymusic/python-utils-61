@@ -1,52 +1,35 @@
 import functools
-from typing import Callable, Any, Iterable, Generator
+from typing import Any, Callable, Dict, List, Union
 
-class ProcessingError(Exception):
-    """Custom exception wrapper for processor edge cases."""
-    def __init__(self, message: str, original_cause: Exception = None):
-        super().__init__(message)
-        self.original_cause = original_cause
+def recursive_map(data: Any, func: Callable[[Any], Any]) -> Any:
+    if isinstance(data, dict):
+        return {k: recursive_map(v, func) for k, v in data.items()}
+    elif isinstance(data, list):
+        return [recursive_map(i, func) for i in data]
+    return func(data)
 
-def resilient_step(fallback_val: Any = None):
-    """Decorator to trap unexpected exceptions and return a fallback value."""
-    def decorator(func: Callable):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            try:
-                return func(*args, **kwargs)
-            except (TypeError, ValueError, AttributeError, KeyError):
-                return fallback_val
-            except Exception as unhandled:
-                raise ProcessingError(f"Fatal anomaly in {func.__name__}", original_cause=unhandled) from unhandled
-        return wrapper
-    return decorator
+def pipeline(*functions: Callable[[Any], Any]) -> Callable[[Any], Any]:
+    return lambda x: functools.reduce(lambda acc, f: f(acc), functions, x)
 
-class SafeBatchProcessor:
-    def __init__(self, strict_mode: bool = False):
-        self.strict_mode = strict_mode
-        self.err_count = 0
+class DataTransformer:
+    def __init__(self, schema: Dict[str, Callable[[Any], Any]]):
+        self.schema = schema
 
-    @resilient_step(fallback_val=None)
-    def transform_item(self, item: Any) -> dict:
-        if item is None:
-            raise ValueError("Item cannot be None")
-        if isinstance(item, (int, float)):
-            return {"val": float(item), "type": "numeric"}
-        if isinstance(item, str):
-            return {"val": item.strip().lower(), "type": "text"}
-        if isinstance(item, dict):
-            return {k: str(v) for k, v in item.items() if not k.startswith("_")}
-        raise TypeError(f"Unsupported payload type: {type(item)}")
+    def process(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        return {
+            k: self.schema.get(k, lambda x: x)(v)
+            for k, v in payload.items()
+        }
 
-    def process_stream(self, stream: Iterable[Any]) -> Generator[dict, None, None]:
-        for idx, element in enumerate(stream):
-            try:
-                result = self.transform_item(element)
-                if result is not None:
-                    yield result
-                elif self.strict_mode:
-                    raise ProcessingError(f"Rejected payload at index {idx}")
-            except ProcessingError as pe:
-                self.err_count += 1
-                if self.strict_mode:
-                    raise pe
+def sanitize_string(val: Any) -> str:
+    return str(val).strip().lower() if val is not None else ""
+
+def dynamic_processor(data: Union[Dict, List], transformation_map: Dict[str, Callable]) -> Any:
+    """
+    Applies transformation logic using higher order mapping
+    """
+    transformer = DataTransformer(transformation_map)
+    
+    if isinstance(data, list):
+        return [transformer.process(item) if isinstance(item, dict) else item for item in data]
+    return transformer.process(data) if isinstance(data, dict) else data
