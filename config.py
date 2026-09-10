@@ -1,67 +1,53 @@
 import os
-from typing import Any, Dict, Type, TypeVar, get_type_hints
+import json
+from collections import ChainMap
+from typing import Any, Dict, Optional
 
-T = TypeVar("T", bound="TypedEnvConfig")
+class ConfigLoader:
+    """Hierarchical configuration manager with dynamic attributes and env overrides."""
 
-class TypedEnvConfig:
-    """A self-parsing configuration base class.
+    def __init__(self, defaults: Optional[Dict[str, Any]] = None, env_prefix: str = "APP_"):
+        self._defaults = defaults or {}
+        self._loaded: Dict[str, Any] = {}
+        self._env_prefix = env_prefix
 
-    This class leverages class-level type annotations to automatically extract,
-    cast, and validate configuration values from environment variables or custom overrides.
-    """
+    def load_file(self, path: str) -> "ConfigLoader":
+        if os.path.exists(path):
+            with open(path, "r", encoding="utf-8") as file:
+                self._loaded.update(json.load(file))
+        return self
 
-    def __init__(self, overrides: Dict[str, Any] | None = None) -> None:
-        """Initializes the configuration, applying optional dictionary overrides.
+    def override(self, **kwargs: Any) -> "ConfigLoader":
+        self._loaded.update(kwargs)
+        return self
 
-        Args:
-            overrides: Optional key-value pairs to override environment variables.
-        """
-        self._overrides: Dict[str, Any] = overrides or {}
-        self._loaded_values: Dict[str, Any] = {}
-        self._load_config()
+    def _resolve(self, key: str) -> Any:
+        env_var = f"{self._env_prefix}{key.upper()}"
+        if env_var in os.environ:
+            raw = os.environ[env_var]
+            return json.loads(raw) if raw.startswith(("{", "[", '"')) else raw
+        
+        sources = ChainMap(self._loaded, self._defaults)
+        if key in sources:
+            return sources[key]
+        raise KeyError(f"Configuration key '{key}' is undefined")
 
-    def _load_config(self) -> None:
-        """Parses annotated class variables and binds their typed values."""
-        hints = get_type_hints(self.__class__)
-        for key, expected_type in hints.items():
-            if key.startswith("_"):
-                continue
-            
-            raw_val = self._overrides.get(key) or os.getenv(key.upper())
-            if raw_val is None:
-                if hasattr(self.__class__, key):
-                    # Use class-level default if it exists
-                    self._loaded_values[key] = getattr(self.__class__, key)
-                    continue
-                raise ValueError(f"Missing required configuration: {key.upper()}")
-
-            self._loaded_values[key] = self._cast_value(raw_val, expected_type)
-
-    def _cast_value(self, value: Any, target_type: Type[Any]) -> Any:
-        """Casts raw configuration values to their annotated types.
-
-        Args:
-            value: The raw string or object to cast.
-            target_type: The expected class/type target.
-            
-        Returns:
-            The safely casted object matching target_type.
-        """
-        if isinstance(value, target_type):
-            return value
-        if target_type is bool:
-            return str(value).lower() in ("true", "1", "yes", "t", "y")
+    def get(self, key: str, default: Any = None) -> Any:
         try:
-            return target_type(value)
-        except (ValueError, TypeError) as err:
-            raise TypeError(f"Cannot cast {value!r} to {target_type}") from err
+            return self._resolve(key)
+        except KeyError:
+            return default
 
-    def __getattr__(self, item: str) -> Any:
-        """Retrieves loaded configurations dynamically.
+    def __getattr__(self, name: str) -> Any:
+        if name.startswith("_"):
+            return super().__getattribute__(name)
+        try:
+            return self._resolve(name)
+        except KeyError as err:
+            raise AttributeError(str(err)) from err
 
-        Args:
-            item: Name of the configuration field.
-        """
-        if item in self._loaded_values:
-            return self._loaded_values[item]
-        raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{item}'")
+    def __getitem__(self, item: str) -> Any:
+        return self._resolve(item)
+
+    def as_dict(self) -> Dict[str, Any]:
+        return {**self._defaults, **self._loaded}
