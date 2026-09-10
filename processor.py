@@ -1,35 +1,47 @@
-import functools
-from typing import Any, Callable, Dict, List, Union
+from typing import Generator, Any, Callable, Dict
 
-def recursive_map(data: Any, func: Callable[[Any], Any]) -> Any:
-    if isinstance(data, dict):
-        return {k: recursive_map(v, func) for k, v in data.items()}
-    elif isinstance(data, list):
-        return [recursive_map(i, func) for i in data]
-    return func(data)
+class ProcessingError(Exception):
+    """Raised when validation fails in the processing loop."""
+    pass
 
-def pipeline(*functions: Callable[[Any], Any]) -> Callable[[Any], Any]:
-    return lambda x: functools.reduce(lambda acc, f: f(acc), functions, x)
+class LoopProcessor:
+    def __init__(self) -> None:
+        self.validators: Dict[str, Callable[[Any], bool]] = {}
 
-class DataTransformer:
-    def __init__(self, schema: Dict[str, Callable[[Any], Any]]):
-        self.schema = schema
+    def register_validator(self, key: str, validator_func: Callable[[Any], bool]) -> None:
+        self.validators[key] = validator_func
 
-    def process(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        return {
-            k: self.schema.get(k, lambda x: x)(v)
-            for k, v in payload.items()
-        }
+    def processing_loop(self) -> Generator[Dict[str, Any], Dict[str, Any], None]:
+        """
+        A generator-based processing loop.
+        Receives data via .send(), validates it on the fly,
+        and yields processed/enriched results.
+        """
+        # Prime the generator
+        data = yield {}
 
-def sanitize_string(val: Any) -> str:
-    return str(val).strip().lower() if val is not None else ""
+        while data is not None:
+            for key, validator in self.validators.items():
+                if key in data:
+                    val = data[key]
+                    try:
+                        if not validator(val):
+                            raise ProcessingError(f"Field '{key}' failed validation check for value: {val}")
+                    except Exception as e:
+                        raise ProcessingError(f"Validation crashed on '{key}': {e}") from e
+                else:
+                    raise ProcessingError(f"Missing required field: '{key}'")
 
-def dynamic_processor(data: Union[Dict, List], transformation_map: Dict[str, Callable]) -> Any:
-    """
-    Applies transformation logic using higher order mapping
-    """
-    transformer = DataTransformer(transformation_map)
-    
-    if isinstance(data, list):
-        return [transformer.process(item) if isinstance(item, dict) else item for item in data]
-    return transformer.process(data) if isinstance(data, dict) else data
+            processed = {f"processed_{k}": str(v).upper() for k, v in data.items()}
+            data = yield processed
+
+if __name__ == '__main__':
+    processor = LoopProcessor()
+    processor.register_validator('id', lambda val: isinstance(val, int) and val > 0)
+    processor.register_validator('email', lambda val: isinstance(val, str) and '@' in val)
+
+    loop = processor.processing_loop()
+    next(loop)
+
+    result = loop.send({'id': 101, 'email': 'test@example.com'})
+    assert result == {'processed_id': '101', 'processed_email': 'TEST@EXAMPLE.COM'}
