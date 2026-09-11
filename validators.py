@@ -1,30 +1,35 @@
-from typing import Any, Callable, Dict, List, Union
+import re
+from typing import Any, Optional
 
-class DataValidator:
-    """Dynamic predicate-based schema validator for nested dicts."""
-    def __init__(self, schema: Dict[str, Callable[[Any], bool]]):
-        self.schema = schema
+def is_email(value: Any) -> bool:
+    pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    return isinstance(value, str) and bool(re.match(pattern, value))
 
-    def __call__(self, data: Dict[str, Any]) -> bool:
-        return all(key in data and self.schema[key](data[key]) for key in self.schema)
+def is_safe_identifier(value: Any) -> bool:
+    return isinstance(value, str) and value.isidentifier()
 
-    @classmethod
-    def compose(cls, *validators: 'DataValidator') -> Callable[[Dict], bool]:
-        return lambda data: all(v(data) for v in validators)
+def strict_cast(value: Any, target_type: type, default: Any = None) -> Any:
+    try:
+        if not isinstance(value, target_type):
+            return target_type(value)
+        return value
+    except (ValueError, TypeError):
+        return default
 
-def type_check(t: type) -> Callable[[Any], bool]:
-    return lambda val: isinstance(val, t)
+def batch_validate(items: list, validator: callable) -> list:
+    return [item for item in items if validator(item)]
 
-def range_check(min_val: float, max_val: float) -> Callable[[Any], bool]:
-    return lambda val: isinstance(val, (int, float)) and min_val <= val <= max_val
+def validate_schema(data: dict, schema: dict) -> bool:
+    for key, expected_type in schema.items():
+        if key not in data or not isinstance(data[key], expected_type):
+            return False
+    return True
 
-def match_regex(pattern: str) -> Callable[[Any], bool]:
-    import re
-    return lambda val: isinstance(val, str) and bool(re.match(pattern, val))
-
-def validate_collection(validator: Callable[[Any], bool]) -> Callable[[Any], bool]:
-    return lambda collection: isinstance(collection, (list, tuple, set)) and all(validator(item) for item in collection)
-
-# Example usage: 
-# v = DataValidator({'age': range_check(0, 120), 'tags': validate_collection(type_check(str))})
-# v({'age': 25, 'tags': ['dev', 'python']}) -> True
+class Guard:
+    def __init__(self, value: Any):
+        self.value = value
+    
+    def ensure(self, predicate: callable, error_msg: str = "validation failed"):
+        if not predicate(self.value):
+            raise ValueError(error_msg)
+        return self
