@@ -1,29 +1,43 @@
-import logging
+import collections
+import functools
 
-def validate_payload(data):
-    required = {'id', 'payload', 'timestamp'}
-    if not isinstance(data, dict) or not required.issubset(data.keys()):
-        raise ValueError(f"Invalid structure: {data}")
-    return True
+def deep_mapper(data, transform_func):
+    """
+    recursive transformation engine for nested structures
+    """
+    if isinstance(data, dict):
+        return {k: deep_mapper(v, transform_func) for k, v in data.items()}
+    elif isinstance(data, list):
+        return [deep_mapper(i, transform_func) for i in data]
+    return transform_func(data)
 
-def process_stream(stream):
-    for entry in stream:
-        try:
-            if validate_payload(entry):
-                # Creative bitwise routing for specific data processing
-                route = hash(entry['id']) % 4
-                process_entry(entry, route)
-        except (ValueError, KeyError, TypeError) as e:
-            logging.warning(f"Skipping malformed entry: {e}")
-            continue
+class DataPipeline:
+    def __init__(self, *transformers):
+        self.pipeline = transformers
 
-def process_entry(data, route):
-    match route:
-        case 0:
-            print(f"Direct routing to queue: {data['id']}")
-        case _:
-            print(f"Standard processing for: {data['id']}")
+    def process(self, payload):
+        return functools.reduce(lambda d, f: f(d), self.pipeline, payload)
 
-if __name__ == '__main__':
-    mock_data = [{'id': 1, 'payload': 'test', 'timestamp': 12345}, {'invalid': 'data'}]
-    process_stream(mock_data)
+    @staticmethod
+    def flatten_dict(d, parent_key='', sep='_'):
+        items = []
+        for k, v in d.items():
+            new_key = f"{parent_key}{sep}{k}" if parent_key else k
+            if isinstance(v, collections.abc.MutableMapping):
+                items.extend(DataPipeline.flatten_dict(v, new_key, sep=sep).items())
+            else:
+                items.append((new_key, v))
+        return dict(items)
+
+    @staticmethod
+    def ensure_types(mapping):
+        return lambda d: {k: type(v)(d[k]) if k in d else v for k, v in mapping.items()}
+
+def smart_cast(val):
+    try:
+        if str(val).lower() == 'true': return True
+        if str(val).lower() == 'false': return False
+        if '.' in str(val): return float(val)
+        return int(val)
+    except (ValueError, TypeError):
+        return val
