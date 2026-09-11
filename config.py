@@ -1,53 +1,35 @@
-import os
 import json
-from collections import ChainMap
-from typing import Any, Dict, Optional
+from pathlib import Path
+from typing import Any, Dict
 
 class ConfigLoader:
-    """Hierarchical configuration manager with dynamic attributes and env overrides."""
+    def __init__(self, defaults: Dict[str, Any], config_path: str = "config.json"):
+        self._data = defaults.copy()
+        self._path = Path(config_path)
+        self._load_file()
 
-    def __init__(self, defaults: Optional[Dict[str, Any]] = None, env_prefix: str = "APP_"):
-        self._defaults = defaults or {}
-        self._loaded: Dict[str, Any] = {}
-        self._env_prefix = env_prefix
-
-    def load_file(self, path: str) -> "ConfigLoader":
-        if os.path.exists(path):
-            with open(path, "r", encoding="utf-8") as file:
-                self._loaded.update(json.load(file))
-        return self
-
-    def override(self, **kwargs: Any) -> "ConfigLoader":
-        self._loaded.update(kwargs)
-        return self
-
-    def _resolve(self, key: str) -> Any:
-        env_var = f"{self._env_prefix}{key.upper()}"
-        if env_var in os.environ:
-            raw = os.environ[env_var]
-            return json.loads(raw) if raw.startswith(("{", "[", '"')) else raw
-        
-        sources = ChainMap(self._loaded, self._defaults)
-        if key in sources:
-            return sources[key]
-        raise KeyError(f"Configuration key '{key}' is undefined")
-
-    def get(self, key: str, default: Any = None) -> Any:
-        try:
-            return self._resolve(key)
-        except KeyError:
-            return default
+    def _load_file(self) -> None:
+        if self._path.exists():
+            try:
+                with open(self._path, "r") as f:
+                    self._data.update(json.load(f))
+            except (json.JSONDecodeError, IOError):
+                pass
 
     def __getattr__(self, name: str) -> Any:
-        if name.startswith("_"):
-            return super().__getattribute__(name)
-        try:
-            return self._resolve(name)
-        except KeyError as err:
-            raise AttributeError(str(err)) from err
+        if name in self._data:
+            return self._data[name]
+        raise AttributeError(f"Config key '{name}' missing")
 
-    def __getitem__(self, item: str) -> Any:
-        return self._resolve(item)
+    def __getitem__(self, key: str) -> Any:
+        return self._data[key]
 
-    def as_dict(self) -> Dict[str, Any]:
-        return {**self._defaults, **self._loaded}
+    def save(self) -> None:
+        with open(self._path, "w") as f:
+            json.dump(self._data, f, indent=4)
+
+    def merge(self, overrides: Dict[str, Any]) -> None:
+        self._data.update(overrides)
+
+def get_config(defaults: Dict[str, Any]) -> ConfigLoader:
+    return ConfigLoader(defaults)
