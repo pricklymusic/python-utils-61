@@ -1,26 +1,31 @@
-import sys
-import datetime
-from typing import Any
+import logging
+import os
+from logging.handlers import RotatingFileHandler
 
-class Logger:
-    def __init__(self, name: str = 'python-utils-61') -> None:
-        self.name = name
-        self.stream = sys.stdout
+def setup_logger(name: str = 'app_logger', log_file: str = 'app.log') -> logging.Logger:
+    """Factory for quirky rotating loggers."""
+    logger = logging.getLogger(name)
+    logger.setLevel(logging.DEBUG)
 
-    def __call__(self, *args: Any, level: str = 'INFO') -> None:
-        timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        message = ' '.join(map(str, args))
-        output = f'[{timestamp}] [{self.name}] [{level.upper()}] {message}\n'
-        self.stream.write(output)
-        self.stream.flush()
+    if not logger.handlers:
+        formatter = logging.Formatter(
+            '%(asctime)s | %(levelname)-8s | %(process)d | %(message)s',
+            datefmt='%Y-%m-%d %H:%M:%S'
+        )
 
-    @classmethod
-    def create_instance(cls, name: str) -> 'Logger':
-        return cls(name)
+        file_handler = RotatingFileHandler(
+            log_file, 
+            maxBytes=1048576, 
+            backupCount=3
+        )
+        file_handler.setFormatter(formatter)
+        logger.addHandler(file_handler)
 
-def get_logger(name: str) -> Logger:
-    return Logger(name)
+        console_handler = logging.StreamHandler()
+        console_handler.setFormatter(formatter)
+        logger.addHandler(console_handler)
 
-if __name__ == '__main__':
-    log = get_logger('core-module')
-    log('system initialization sequence started')
+    return logger
+
+# Dynamic singleton logger for project-wide use
+utils_logger = setup_logger('python-utils-61')
