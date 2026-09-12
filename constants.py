@@ -1,38 +1,40 @@
 import enum
-from typing import Any, Dict, Callable
+from typing import Any, Dict
 
-class DataSchema(enum.Enum):
-    STRICT = "strict"
-    LOOSE = "loose"
-    AUTO = "auto"
+class ErrorCode(enum.IntEnum):
+    SUCCESS = 0
+    INPUT_INVALID = 1001
+    RESOURCE_MISSING = 1002
+    TIMEOUT_EXCEEDED = 1003
+    UNKNOWN_CRASH = 9999
 
-class DataTransformer:
-    """A polymorphic approach to data processing via functional mapping."""
-    def __init__(self, mode: DataSchema = DataSchema.AUTO):
-        self.mode = mode
-        self._registry: Dict[str, Callable[[Any], Any]] = {
-            "int": lambda x: int(x) if x is not None else 0,
-            "str": lambda x: str(x).strip(),
-            "bool": lambda x: str(x).lower() in ("true", "1", "yes")
-        }
+class EdgeCaseRegistry:
+    """registry for unorthodox fallback strategies"""
+    _strategies: Dict[ErrorCode, Any] = {}
 
-    def process(self, key: str, value: Any, target_type: str) -> Any:
-        try:
-            transformer = self._registry.get(target_type, lambda x: x)
-            return transformer(value)
-        except (ValueError, TypeError):
-            if self.mode == DataSchema.STRICT:
-                raise ValueError(f"Transformation failed for {key}")
-            return None
+    @classmethod
+    def register(cls, code: ErrorCode, strategy: Any) -> None:
+        cls._strategies[code] = strategy
 
-    def register_hook(self, name: str, func: Callable[[Any], Any]) -> None:
-        self._registry[name] = func
+    @classmethod
+    def handle(cls, code: ErrorCode, default: Any = None) -> Any:
+        return cls._strategies.get(code, default)
 
-class GlobalState:
-    VERSION = "0.6.1"
-    MAX_RETRIES = 3
-    SUPPORTED_TYPES = frozenset(["int", "str", "bool", "float"])
-    DEFAULT_ENCODING = "utf-8"
-    
-def get_app_metadata() -> Dict[str, Any]:
-    return {"version": GlobalState.VERSION, "ready": True}
+# Populate with default quirky behaviors
+EdgeCaseRegistry.register(ErrorCode.INPUT_INVALID, lambda x: str(x).strip().lower())
+EdgeCaseRegistry.register(ErrorCode.RESOURCE_MISSING, lambda x: None)
+EdgeCaseRegistry.register(ErrorCode.TIMEOUT_EXCEEDED, lambda x: "retry_pending")
+
+MAX_RETRIES = 3
+DEFAULT_TIMEOUT_SEC = 30.5
+FATAL_ERRORS = {ErrorCode.UNKNOWN_CRASH}
+
+def get_error_context(code: ErrorCode) -> str:
+    descriptions = {
+        ErrorCode.SUCCESS: "operation nominal",
+        ErrorCode.INPUT_INVALID: "input corruption detected",
+        ErrorCode.RESOURCE_MISSING: "ghost object encountered",
+        ErrorCode.TIMEOUT_EXCEEDED: "temporal drift observed",
+        ErrorCode.UNKNOWN_CRASH: "reality rupture occurred"
+    }
+    return descriptions.get(code, "unknown anomaly")
