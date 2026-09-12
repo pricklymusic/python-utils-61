@@ -1,35 +1,29 @@
-import re
-from typing import Any, Optional
+from typing import Any, Callable, Dict, Optional
 
-def is_email(value: Any) -> bool:
-    pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
-    return isinstance(value, str) and bool(re.match(pattern, value))
+class Validator:
+    """An unconventional validator factory for runtime type checking."""
+    def __init__(self, check: Callable[[Any], bool], error_msg: str = "Validation failed") -> None:
+        self.check = check
+        self.error_msg = error_msg
 
-def is_safe_identifier(value: Any) -> bool:
-    return isinstance(value, str) and value.isidentifier()
-
-def strict_cast(value: Any, target_type: type, default: Any = None) -> Any:
-    try:
-        if not isinstance(value, target_type):
-            return target_type(value)
+    def __call__(self, value: Any) -> Any:
+        if not self.check(value):
+            raise ValueError(f"{self.error_msg}: {value}")
         return value
-    except (ValueError, TypeError):
-        return default
 
-def batch_validate(items: list, validator: callable) -> list:
-    return [item for item in items if validator(item)]
+def validate_schema(data: Dict[str, Any], schema: Dict[str, Validator]) -> Dict[str, Any]:
+    """Applies validators across a dictionary mapping."""
+    return {k: v(data.get(k)) for k, v in schema.items()}
 
-def validate_schema(data: dict, schema: dict) -> bool:
-    for key, expected_type in schema.items():
-        if key not in data or not isinstance(data[key], expected_type):
-            return False
-    return True
+def is_int_range(low: int, high: int) -> Validator:
+    """Creator for numeric range validators."""
+    return Validator(
+        lambda x: isinstance(x, int) and low <= x <= high,
+        f"Value not in range [{low}, {high}]"
+    )
 
-class Guard:
-    def __init__(self, value: Any):
-        self.value = value
-    
-    def ensure(self, predicate: callable, error_msg: str = "validation failed"):
-        if not predicate(self.value):
-            raise ValueError(error_msg)
-        return self
+def is_non_empty_str(value: Any) -> bool:
+    """Checks if input is a non-empty string."""
+    return isinstance(value, str) and len(value) > 0
+
+string_validator: Validator = Validator(is_non_empty_str, "Empty string error")
