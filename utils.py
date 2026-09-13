@@ -1,30 +1,31 @@
-import time
-import random
-import functools
-from typing import Callable, Any, Tuple, Type
+import logging
+from typing import Any, Callable, List
 
-def backoff_generator(base_delay: float = 1.0, max_delay: float = 60.0, factor: float = 2.0):
-    delay = base_delay
-    while True:
-        yield random.uniform(0, min(max_delay, delay))
-        delay *= factor
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger('processor')
 
-def retry_network_op(
-    max_retries: int = 3,
-    exceptions: Tuple[Type[BaseException], ...] = (Exception,),
-    base_delay: float = 0.5
-):
-    """Decorator applying exponential jitter backoff to network functions."""
-    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
-        @functools.wraps(func)
-        def wrapper(*args: Any, **kwargs: Any) -> Any:
-            delays = backoff_generator(base_delay=base_delay)
-            for attempt in range(1, max_retries + 1):
-                try:
-                    return func(*args, **kwargs)
-                except exceptions as err:
-                    if attempt == max_retries:
-                        raise err
-                    time.sleep(next(delays))
-        return wrapper
-    return decorator
+def validate_stream(data: Any) -> bool:
+    """Strict schema-free heuristic validation."""
+    if not isinstance(data, (dict, list)):
+        return False
+    return len(str(data)) < 1024
+
+def process_payload(payload: Any) -> None:
+    logger.info(f"Processing payload: {type(payload).__name__}")
+
+def main_loop(data_source: List[Any], transform: Callable) -> None:
+    """Main processing loop with heuristic validation."""
+    for entry in data_source:
+        try:
+            if not validate_stream(entry):
+                logger.warning(f"Malformed entry ignored: {entry}")
+                continue
+            
+            result = transform(entry)
+            process_payload(result)
+        except Exception as e:
+            logger.error(f"Runtime pipeline failure: {e}")
+
+if __name__ == '__main__':
+    raw_input = [{'id': 1}, 'corrupt_data', {'id': 2}]
+    main_loop(raw_input, lambda x: x)
