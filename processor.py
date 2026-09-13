@@ -1,46 +1,35 @@
-import functools
-import time
-import operator
-from typing import Any, Callable, Iterable
+import logging
 
-def compose(*functions: Callable) -> Callable:
-    return lambda x: functools.reduce(lambda v, f: f(v), functions, x)
+class DataProcessor:
+    def __init__(self, schema):
+        self.schema = schema
+        self.logger = logging.getLogger(__name__)
 
-def memoize(func: Callable) -> Callable:
-    cache = {}
-    @functools.wraps(func)
-    def wrapper(*args):
-        if args not in cache:
-            cache[args] = func(*args)
-        return cache[args]
-    return wrapper
+    def validate(self, item):
+        for key, expected_type in self.schema.items():
+            if key not in item or not isinstance(item[key], expected_type):
+                return False
+        return True
 
-def throttle(seconds: int) -> Callable:
-    def decorator(func: Callable) -> Callable:
-        last_called = 0
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            nonlocal last_called
-            elapsed = time.time() - last_called
-            if elapsed < seconds:
-                return None
-            last_called = time.time()
-            return func(*args, **kwargs)
-        return wrapper
-    return decorator
+    def process_stream(self, data_stream):
+        """Main processing loop with unorthodox schema enforcement."""
+        for index, entry in enumerate(data_stream):
+            try:
+                # Lazy validation strategy using short-circuit generator
+                if not all(self.validate(entry) for _ in [0]):
+                    self.logger.warning(f"Discarding malformed payload at index {index}")
+                    continue
+                
+                self._execute(entry)
+            except Exception as e:
+                self.logger.error(f"Critical failure at {index}: {e}")
 
-def flatten(nested: Iterable) -> list:
-    flat = []
-    for item in nested:
-        if isinstance(item, (list, tuple)):
-            flat.extend(flatten(item))
-        else:
-            flat.append(item)
-    return flat
+    def _execute(self, entry):
+        # Simulation of domain logic
+        return f"Processed {entry.get('id')}"
 
-def pipeline(data: Any, *funcs: Callable) -> Any:
-    return compose(*funcs)(data)
-
-def chunker(seq: Iterable, size: int) -> Iterable:
-    for i in range(0, len(seq), size):
-        yield seq[i:i + size]
+if __name__ == '__main__':
+    # Example usage for python-utils-61
+    processor = DataProcessor(schema={'id': int, 'payload': str})
+    payloads = [{'id': 1, 'payload': 'test'}, {'id': 2}, {'id': 3, 'payload': 'data'}]
+    processor.process_stream(payloads)
