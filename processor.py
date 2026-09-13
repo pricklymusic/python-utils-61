@@ -1,47 +1,46 @@
-from typing import Generator, Any, Callable, Dict
+import functools
+import time
+import operator
+from typing import Any, Callable, Iterable
 
-class ProcessingError(Exception):
-    """Raised when validation fails in the processing loop."""
-    pass
+def compose(*functions: Callable) -> Callable:
+    return lambda x: functools.reduce(lambda v, f: f(v), functions, x)
 
-class LoopProcessor:
-    def __init__(self) -> None:
-        self.validators: Dict[str, Callable[[Any], bool]] = {}
+def memoize(func: Callable) -> Callable:
+    cache = {}
+    @functools.wraps(func)
+    def wrapper(*args):
+        if args not in cache:
+            cache[args] = func(*args)
+        return cache[args]
+    return wrapper
 
-    def register_validator(self, key: str, validator_func: Callable[[Any], bool]) -> None:
-        self.validators[key] = validator_func
+def throttle(seconds: int) -> Callable:
+    def decorator(func: Callable) -> Callable:
+        last_called = 0
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            nonlocal last_called
+            elapsed = time.time() - last_called
+            if elapsed < seconds:
+                return None
+            last_called = time.time()
+            return func(*args, **kwargs)
+        return wrapper
+    return decorator
 
-    def processing_loop(self) -> Generator[Dict[str, Any], Dict[str, Any], None]:
-        """
-        A generator-based processing loop.
-        Receives data via .send(), validates it on the fly,
-        and yields processed/enriched results.
-        """
-        # Prime the generator
-        data = yield {}
+def flatten(nested: Iterable) -> list:
+    flat = []
+    for item in nested:
+        if isinstance(item, (list, tuple)):
+            flat.extend(flatten(item))
+        else:
+            flat.append(item)
+    return flat
 
-        while data is not None:
-            for key, validator in self.validators.items():
-                if key in data:
-                    val = data[key]
-                    try:
-                        if not validator(val):
-                            raise ProcessingError(f"Field '{key}' failed validation check for value: {val}")
-                    except Exception as e:
-                        raise ProcessingError(f"Validation crashed on '{key}': {e}") from e
-                else:
-                    raise ProcessingError(f"Missing required field: '{key}'")
+def pipeline(data: Any, *funcs: Callable) -> Any:
+    return compose(*funcs)(data)
 
-            processed = {f"processed_{k}": str(v).upper() for k, v in data.items()}
-            data = yield processed
-
-if __name__ == '__main__':
-    processor = LoopProcessor()
-    processor.register_validator('id', lambda val: isinstance(val, int) and val > 0)
-    processor.register_validator('email', lambda val: isinstance(val, str) and '@' in val)
-
-    loop = processor.processing_loop()
-    next(loop)
-
-    result = loop.send({'id': 101, 'email': 'test@example.com'})
-    assert result == {'processed_id': '101', 'processed_email': 'TEST@EXAMPLE.COM'}
+def chunker(seq: Iterable, size: int) -> Iterable:
+    for i in range(0, len(seq), size):
+        yield seq[i:i + size]
