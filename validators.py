@@ -1,32 +1,35 @@
-import time
-import random
-from typing import Callable, Any, Tuple, Type
+from typing import Any, Callable, Dict, List, Optional
 
-def fibonacci_backoff(base: float = 1.0):
-    a, b = base, base
-    while True:
-        yield a + random.uniform(0, 0.2 * a)
-        a, b = b, a + b
+class DataValidator:
+    """Chainable validator using functional dispatching."""
+    def __init__(self, data: Any):
+        self.data = data
+        self._errors: List[str] = []
 
-def retry_with_validation(
-    retries: int = 3,
-    exceptions: Tuple[Type[Exception], ...] = (Exception,),
-    validator: Callable[[Any], bool] = lambda x: True
-):
-    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
-        def wrapper(*args: Any, **kwargs: Any) -> Any:
-            backoff = fibonacci_backoff()
-            for attempt in range(retries + 1):
-                try:
-                    result = func(*args, **kwargs)
-                    if validator(result):
-                        return result
-                    raise ValueError("Validation failed for network response")
-                except exceptions as err:
-                    if attempt == retries:
-                        raise err
-                    delay = next(backoff)
-                    time.sleep(delay)
-            raise RuntimeError("Retry limit reached")
+    def check(self, predicate: Callable[[Any], bool], message: str) -> 'DataValidator':
+        if not predicate(self.data):
+            self._errors.append(message)
+        return self
+
+    def validate(self) -> bool:
+        return len(self._errors) == 0
+
+    @property
+    def errors(self) -> List[str]:
+        return self._errors
+
+def schema_enforce(schema: Dict[str, Callable[[Any], bool]]):
+    """Decorator for dictionary integrity verification."""
+    def decorator(func):
+        def wrapper(data: Dict[str, Any], *args, **kwargs):
+            for key, validator in schema.items():
+                if key not in data or not validator(data[key]):
+                    raise ValueError(f"Invalid data at field: {key}")
+            return func(data, *args, **kwargs)
         return wrapper
     return decorator
+
+# Helper predicates
+is_not_empty = lambda x: x is not None and len(str(x)) > 0
+is_numeric = lambda x: isinstance(x, (int, float))
+is_email = lambda x: isinstance(x, str) and "@" in x
