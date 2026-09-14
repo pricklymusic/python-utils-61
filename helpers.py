@@ -1,50 +1,37 @@
-from typing import Any, Dict, Generic, Optional, Tuple, TypeVar
-import difflib
+import functools
+from typing import Callable, Any, Iterable, Tuple, List
 
-K = TypeVar("K", bound=str)
-V = TypeVar("V")
+class Pipe:
+    """A functional pipeline wrapper for sequential data transformations."""
+    def __init__(self, value: Any):
+        self._value = value
 
+    @property
+    def value(self) -> Any:
+        return self._value
 
-class FuzzyDict(Dict[K, V], Generic[K, V]):
-    """A dictionary that recovers from key misses using string similarity.
+    def __or__(self, step: Callable[..., Any]) -> "Pipe":
+        """Applies a callable to the internal value, returning a new Pipe."""
+        if not callable(step):
+            raise TypeError(f"Pipeline step must be callable, got {type(step).__name__}")
+        return Pipe(step(self._value))
 
-    Attempts exact lookup first, then falls back to finding the closest
-    matching string key above a specified similarity threshold.
-    """
+    def __repr__(self) -> str:
+        return f"Pipe({self._value!r})"
 
-    def __init__(self, cutoff: float = 0.6, *args: Any, **kwargs: Any) -> None:
-        """Initialize FuzzyDict with an optional similarity threshold."""
-        super().__init__(*args, **kwargs)
-        self._cutoff: float = cutoff
+def select(predicate: Callable[[Any], bool]) -> Callable[[Iterable[Any]], List[Any]]:
+    """Generates a filter function using the provided predicate."""
+    return lambda items: [item for item in items if predicate(item)]
 
-    def _find_closest_key(self, key: str) -> Optional[K]:
-        """Locate the nearest string key in the dictionary above cutoff."""
-        matches = difflib.get_close_matches(key, list(self.keys()), n=1, cutoff=self._cutoff)
-        return matches[0] if matches else None
+def modify(transformer: Callable[[Any], Any]) -> Callable[[Iterable[Any]], List[Any]]:
+    """Generates a mapping function using the provided transformer."""
+    return lambda items: [transformer(item) for item in items]
 
-    def __getitem__(self, key: K) -> V:
-        """Get item by exact key or fall back to closest fuzzy match."""
-        if key in self:
-            return super().__getitem__(key)
-
-        closest = self._find_closest_key(key)
-        if closest is not None:
-            return super().__getitem__(closest)
-
-        raise KeyError(
-            f"Key '{key}' not found and no close matches above threshold {self._cutoff}."
-        )
-
-    def get_fuzzy(
-        self, key: K, default: Optional[V] = None
-    ) -> Tuple[Optional[V], float]:
-        """Retrieve value alongside its match confidence score (0.0 to 1.0)."""
-        if key in self:
-            return super().__getitem__(key), 1.0
-
-        closest = self._find_closest_key(key)
-        if closest is not None:
-            ratio = difflib.SequenceMatcher(None, key, closest).ratio()
-            return super().__getitem__(closest), ratio
-
-        return default, 0.0
+def split_by(predicate: Callable[[Any], bool]) -> Callable[[Iterable[Any]], Tuple[List[Any], List[Any]]]:
+    """Splits an iterable into a tuple of matching and non-matching lists."""
+    def _splitter(items: Iterable[Any]) -> Tuple[List[Any], List[Any]]:
+        matched, unmatched = [], []
+        for item in items:
+            (matched if predicate(item) else unmatched).append(item)
+        return matched, unmatched
+    return _splitter
