@@ -1,35 +1,50 @@
-import json
-from pathlib import Path
-from typing import Any, Dict
+import functools
+import os
+import threading
 
-class ConfigLoader:
-    def __init__(self, defaults: Dict[str, Any], config_path: str = "config.json"):
-        self._data = defaults.copy()
-        self._path = Path(config_path)
-        self._load_file()
+class ConfigStore:
+    _instance = None
+    _lock = threading.Lock()
 
-    def _load_file(self) -> None:
-        if self._path.exists():
-            try:
-                with open(self._path, "r") as f:
-                    self._data.update(json.load(f))
-            except (json.JSONDecodeError, IOError):
-                pass
+    def __new__(cls):
+        with cls._lock:
+            if cls._instance is None:
+                cls._instance = super(ConfigStore, cls).__new__(cls)
+                cls._instance._data = {}
+            return cls._instance
 
-    def __getattr__(self, name: str) -> Any:
-        if name in self._data:
-            return self._data[name]
-        raise AttributeError(f"Config key '{name}' missing")
+    def __getitem__(self, key):
+        return self._data.get(key)
 
-    def __getitem__(self, key: str) -> Any:
-        return self._data[key]
+    def __setitem__(self, key, value):
+        self._data[key] = value
 
-    def save(self) -> None:
-        with open(self._path, "w") as f:
-            json.dump(self._data, f, indent=4)
+def memoize_config(func):
+    cache = {}
+    @functools.wraps(func)
+    def wrapper(*args):
+        if args not in cache:
+            cache[args] = func(*args)
+        return cache[args]
+    return wrapper
 
-    def merge(self, overrides: Dict[str, Any]) -> None:
-        self._data.update(overrides)
+@memoize_config
+def get_environment_variable(key: str, default=None):
+    val = os.getenv(key, default)
+    return val if val is not None else default
 
-def get_config(defaults: Dict[str, Any]) -> ConfigLoader:
-    return ConfigLoader(defaults)
+def lazy_load_settings(func):
+    storage = {}
+    def inner():
+        if 'result' not in storage:
+            storage['result'] = func()
+        return storage['result']
+    return inner
+
+@lazy_load_settings
+def load_defaults():
+    return {
+        'DEBUG': False,
+        'TIMEOUT': 30,
+        'RETRIES': 3
+    }
