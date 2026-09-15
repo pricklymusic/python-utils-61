@@ -1,15 +1,13 @@
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-
 # python-utils-61
 
-`python-utils-61` is a lightweight collection of production-ready Python helpers designed to streamline data transformation, file handling, and environment configuration across backend services. It eliminates repetitive boilerplate code by providing optimized, fully type-hinted utilities for everyday software development tasks.
+A comprehensive collection of reusable Python utility functions designed to streamline daily development tasks. This library focuses on performance, readability, and minimizing boilerplate code for common data manipulation and system operations.
 
 ## Features
 
-- **Nested Dictionary Extractor:** Perform safe deep-key lookups and key-flattening on complex JSON payloads without raising `KeyError`.
-- **Smart Retry Decorator:** Wrap synchronous and asynchronous functions with exponential backoff and custom exception filtering.
-- **Atomic File Operations:** Read and write JSON, YAML, and plain text files safely using thread-safe locking mechanisms.
-- **Environment Validator:** Parse and cast environment variables strictly at application startup with custom fallbacks.
+*   **File System Helpers:** Simplified wrappers for recursive directory traversal and intelligent file logging.
+*   **Data Transformation:** Efficient tools for nested dictionary flattening and complex type conversion.
+*   **Concurrency Utilities:** Thread-safe decorators and easy-to-implement rate limiters for API requests.
+*   **Validation Suite:** A robust set of schema-agnostic validators for common data formats and network inputs.
 
 ## Installation
 
@@ -19,35 +17,33 @@ Install the package directly via pip:
 pip install python-utils-61
 ```
 
-Or install from source:
+Or, if you are working within a virtual environment, add it to your requirements:
 
 ```bash
-git clone https://github.com/Developer/python-utils-61.git
-cd python-utils-61
-pip install .
+echo "python-utils-61" >> requirements.txt
+pip install -r requirements.txt
 ```
 
-## Quick Start
+## Basic Usage
+
+Import the utility module to handle common tasks with minimal code. Here is an example of using the file system helper:
 
 ```python
-from python_utils_61 import safe_get, retry, EnvLoader
+from pyutils61 import file_ops
 
-# 1. Safely extract deep values from nested dictionaries
-payload = {"data": {"user": {"settings": {"theme": "dark"}}}}
-theme = safe_get(payload, "data.user.settings.theme", default="light")
-print(f"User theme: {theme}")
+# Recursively fetch all .json files in a directory
+files = file_ops.list_files_by_extension('./data', 'json')
 
-# 2. Automatically retry volatile operations
-@retry(max_attempts=3, delay=1.5, exceptions=(TimeoutError, ConnectionError))
-def sync_remote_data():
-    # Fetch data from an external service
-    return True
+# Safely create nested directories
+file_ops.ensure_dir('./logs/app/2023/')
 
-# 3. Load and validate environment configuration
-env = EnvLoader()
-db_port = env.get_int("DB_PORT", default=5432)
+print(f"Found {len(files)} files.")
 ```
 
+For more complex implementations, please refer to the `examples/` directory in the repository for detailed integration patterns.
+
 ## License
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 Distributed under the MIT License. See `LICENSE` for more information.
