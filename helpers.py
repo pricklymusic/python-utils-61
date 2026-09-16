@@ -1,37 +1,53 @@
-import functools
-from typing import Callable, Any, Iterable, Tuple, List
+import sys
+from typing import Any, List
 
-class Pipe:
-    """A functional pipeline wrapper for sequential data transformations."""
-    def __init__(self, value: Any):
-        self._value = value
 
-    @property
-    def value(self) -> Any:
-        return self._value
+def fallback_lookup(
+    obj: Any, path: str, default: Any = None, sep: str = "."
+) -> Any:
+    """Resolve dynamic paths through dicts and objects with safety nets."""
+    seen = set()
 
-    def __or__(self, step: Callable[..., Any]) -> "Pipe":
-        """Applies a callable to the internal value, returning a new Pipe."""
-        if not callable(step):
-            raise TypeError(f"Pipeline step must be callable, got {type(step).__name__}")
-        return Pipe(step(self._value))
+    def _traverse(current: Any, keys: List[str]) -> Any:
+        if not keys:
+            return current
 
-    def __repr__(self) -> str:
-        return f"Pipe({self._value!r})"
+        obj_id = id(current)
+        if obj_id in seen:
+            raise ValueError("cyclic path reference")
+        seen.add(obj_id)
 
-def select(predicate: Callable[[Any], bool]) -> Callable[[Iterable[Any]], List[Any]]:
-    """Generates a filter function using the provided predicate."""
-    return lambda items: [item for item in items if predicate(item)]
+        head, *tail = keys
 
-def modify(transformer: Callable[[Any], Any]) -> Callable[[Iterable[Any]], List[Any]]:
-    """Generates a mapping function using the provided transformer."""
-    return lambda items: [transformer(item) for item in items]
+        # Try dict key/list index lookup
+        try:
+            return _traverse(current[head], tail)
+        except (KeyError, TypeError, IndexError):
+            pass
 
-def split_by(predicate: Callable[[Any], bool]) -> Callable[[Iterable[Any]], Tuple[List[Any], List[Any]]]:
-    """Splits an iterable into a tuple of matching and non-matching lists."""
-    def _splitter(items: Iterable[Any]) -> Tuple[List[Any], List[Any]]:
-        matched, unmatched = [], []
-        for item in items:
-            (matched if predicate(item) else unmatched).append(item)
-        return matched, unmatched
-    return _splitter
+        # Try converting lookup key to index
+        try:
+            return _traverse(current[int(head)], tail)
+        except (ValueError, IndexError, TypeError):
+            pass
+
+        # Try direct attribute resolution
+        try:
+            return _traverse(getattr(current, head), tail)
+        except AttributeError:
+            pass
+
+        # Try case-insensitive and snake_case fallback for dicts
+        if isinstance(current, dict):
+            normalized = head.lower().replace("_", "").replace("-", "")
+            for k, v in current.items():
+                if str(k).lower().replace("_", "").replace("-", "") == normalized:
+                    return _traverse(v, tail)
+
+        raise LookupError(f"failed to resolve: {head}")
+
+    try:
+        parts = [p for p in path.split(sep) if p]
+        return _traverse(obj, parts) if parts else default
+    except Exception:
+        return default
