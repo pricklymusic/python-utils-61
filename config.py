@@ -1,50 +1,52 @@
-import functools
+import json
 import os
-import threading
+from typing import Any, Dict
 
-class ConfigStore:
-    _instance = None
-    _lock = threading.Lock()
 
-    def __new__(cls):
-        with cls._lock:
-            if cls._instance is None:
-                cls._instance = super(ConfigStore, cls).__new__(cls)
-                cls._instance._data = {}
-            return cls._instance
+class ConfigLoader:
+    """A dynamic configuration loader supporting defaults, environment overrides, and attribute-style access."""
 
-    def __getitem__(self, key):
-        return self._data.get(key)
+    def __init__(self, defaults: Dict[str, Any], env_prefix: str = "APP_"):
+        self.__dict__["_defaults"] = defaults
+        self.__dict__["_prefix"] = env_prefix
+        self.__dict__["_data"] = {}
 
-    def __setitem__(self, key, value):
-        self._data[key] = value
+    def load_from_json(self, filepath: str) -> None:
+        if os.path.exists(filepath):
+            with open(filepath, "r") as f:
+                self.__dict__["_data"].update(json.load(f))
 
-def memoize_config(func):
-    cache = {}
-    @functools.wraps(func)
-    def wrapper(*args):
-        if args not in cache:
-            cache[args] = func(*args)
-        return cache[args]
-    return wrapper
+    def __getattr__(self, name: str) -> Any:
+        env_key = f"{self._prefix}{name.upper()}"
+        if env_key in os.environ:
+            val = os.environ[env_key]
+            default_val = self._defaults.get(name)
+            if default_val is not None:
+                try:
+                    return type(default_val)(val)
+                except (ValueError, TypeError):
+                    return val
+            return val
 
-@memoize_config
-def get_environment_variable(key: str, default=None):
-    val = os.getenv(key, default)
-    return val if val is not None else default
+        if name in self._data:
+            return self._data[name]
 
-def lazy_load_settings(func):
-    storage = {}
-    def inner():
-        if 'result' not in storage:
-            storage['result'] = func()
-        return storage['result']
-    return inner
+        if name in self._defaults:
+            return self._defaults[name]
 
-@lazy_load_settings
-def load_defaults():
-    return {
-        'DEBUG': False,
-        'TIMEOUT': 30,
-        'RETRIES': 3
-    }
+        raise AttributeError(f"Configuration key '{name}' is not defined")
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        raise AttributeError("Configuration is read-only")
+
+    def get_all(self) -> Dict[str, Any]:
+        all_keys = (
+            set(self._defaults.keys())
+            | set(self._data.keys())
+            | {
+                k[len(self._prefix) :].lower()
+                for k in os.environ
+                if k.startswith(self._prefix)
+            }
+        )
+        return {k: getattr(self, k) for k in sorted(all_keys) if k}
