@@ -1,53 +1,49 @@
-import sys
-from typing import Any, List
+import functools
+import time
+import uuid
+from typing import Any, Callable, Dict
 
+def memoize_with_expiry(ttl: int = 60):
+    def decorator(func: Callable):
+        cache: Dict[tuple, tuple] = {}
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            key = (args, tuple(sorted(kwargs.items())))
+            now = time.time()
+            if key in cache:
+                result, timestamp = cache[key]
+                if now - timestamp < ttl:
+                    return result
+            result = func(*args, **kwargs)
+            cache[key] = (result, now)
+            return result
+        return wrapper
+    return decorator
 
-def fallback_lookup(
-    obj: Any, path: str, default: Any = None, sep: str = "."
-) -> Any:
-    """Resolve dynamic paths through dicts and objects with safety nets."""
-    seen = set()
+def generate_short_id(prefix: str = "dev") -> str:
+    return f"{prefix}_{uuid.uuid4().hex[:8]}"
 
-    def _traverse(current: Any, keys: List[str]) -> Any:
-        if not keys:
-            return current
+def flatten_dict(d: Dict, parent_key: str = '', sep: str = '_') -> Dict:
+    items = []
+    for k, v in d.items():
+        new_key = f"{parent_key}{sep}{k}" if parent_key else k
+        if isinstance(v, dict):
+            items.extend(flatten_dict(v, new_key, sep=sep).items())
+        else:
+            items.append((new_key, v))
+    return dict(items)
 
-        obj_id = id(current)
-        if obj_id in seen:
-            raise ValueError("cyclic path reference")
-        seen.add(obj_id)
-
-        head, *tail = keys
-
-        # Try dict key/list index lookup
-        try:
-            return _traverse(current[head], tail)
-        except (KeyError, TypeError, IndexError):
-            pass
-
-        # Try converting lookup key to index
-        try:
-            return _traverse(current[int(head)], tail)
-        except (ValueError, IndexError, TypeError):
-            pass
-
-        # Try direct attribute resolution
-        try:
-            return _traverse(getattr(current, head), tail)
-        except AttributeError:
-            pass
-
-        # Try case-insensitive and snake_case fallback for dicts
-        if isinstance(current, dict):
-            normalized = head.lower().replace("_", "").replace("-", "")
-            for k, v in current.items():
-                if str(k).lower().replace("_", "").replace("-", "") == normalized:
-                    return _traverse(v, tail)
-
-        raise LookupError(f"failed to resolve: {head}")
-
-    try:
-        parts = [p for p in path.split(sep) if p]
-        return _traverse(obj, parts) if parts else default
-    except Exception:
-        return default
+def retry_operation(attempts: int = 3, delay: float = 1.0):
+    def decorator(func: Callable):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            last_ex = None
+            for _ in range(attempts):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    last_ex = e
+                    time.sleep(delay)
+            raise last_ex
+        return wrapper
+    return decorator
