@@ -1,33 +1,29 @@
-import logging
+from typing import Callable, Any, Dict, Optional
+import functools
 
-class InputProcessor:
-    def __init__(self):
-        self.schema = {'id': int, 'payload': str}
+class DataHandler:
+    """An unconventional handler that treats data as callable flow."""
+    
+    def __init__(self, processors: Optional[Dict[str, Callable[[Any], Any]]] = None) -> None:
+        self._processors: Dict[str, Callable[[Any], Any]] = processors or {}
 
-    def validate(self, item):
-        if not isinstance(item, dict):
-            raise ValueError('Item must be a dictionary')
-        if any(item.get(k) is None or not isinstance(item[k], v) for k, v in self.schema.items()):
-            return False
-        return True
+    def __call__(self, key: str, value: Any) -> Any:
+        """Process data using a registered pipeline stage."""
+        processor = self._processors.get(key, lambda x: x)
+        return processor(value)
 
-    def process_loop(self, data_stream):
-        for entry in data_stream:
-            try:
-                if self.validate(entry):
-                    self.execute(entry)
-                else:
-                    logging.warning(f'skipped malformed entry: {entry}')
-            except Exception as e:
-                logging.error(f'loop failure on {entry}: {e}')
+    def register(self, key: str) -> Callable[[Callable[[Any], Any]], Callable[[Any], Any]]:
+        """Decorator registration for custom pipeline logic."""
+        def decorator(func: Callable[[Any], Any]) -> Callable[[Any], Any]:
+            self._processors[key] = func
+            return func
+        return decorator
 
-    def execute(self, item):
-        print(f'processing: {item["id"]}')
+    def pipeline(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Apply processing pipeline to entire data set."""
+        return {k: self(k, v) for k, v in data.items()}
 
-def main():
-    stream = [{'id': 1, 'payload': 'data'}, {'id': 'err', 'payload': 'fail'}, {'id': 2, 'payload': 'ok'}]
-    handler = InputProcessor()
-    handler.process_loop(stream)
-
-if __name__ == '__main__':
-    main()
+@functools.lru_cache(maxsize=32)
+def get_default_handler() -> DataHandler:
+    """Factory for standardized data handling instances."""
+    return DataHandler()
