@@ -1,36 +1,49 @@
-import sys
-from typing import Any, Callable
+import functools
+from typing import Callable, Any, Type, Optional
 
+class UtilityError(Exception):
+    """Base exception for python-utils-61."""
 
-class ProcessingError(Exception):
-    """Base exception for processing failures with custom payloads."""
+class SilentFail(UtilityError):
+    """Exception to swallow errors and return default."""
 
-    def __init__(self, message: str, payload: Any = None) -> None:
-        self.payload = payload
-        super().__init__(f"{message} [offending_payload={payload!r}]")
+def suppress_errors(default: Any = None, logger: Optional[Callable] = None) -> Callable:
+    """Decorator that traps all exceptions and returns default value."""
+    def decorator(func: Callable) -> Callable:
+        @functools.wraps(func)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            try:
+                return func(*args, **kwargs)
+            except Exception as e:
+                if logger:
+                    logger(f"Suppressed error in {func.__name__}: {e}")
+                return default
+        return wrapper
+    return decorator
 
+def ensure_raises(exception_type: Type[Exception], message: str) -> Callable:
+    """Decorator that wraps function to raise specific domain exception."""
+    def decorator(func: Callable) -> Callable:
+        @functools.wraps(func)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            try:
+                return func(*args, **kwargs)
+            except Exception as e:
+                raise exception_type(f"{message}: {str(e)}") from e
+        return wrapper
+    return decorator
 
-class InvalidInputError(ProcessingError):
-    """Raised when runtime inputs violate validation bounds."""
-
-
-class input_validator:
-    """A scope-level validator implemented as a context manager.
-
-    Validates any newly introduced or modified variables within its block.
-    """
-
-    def __init__(
-        self, predicate: Callable[[Any], bool], error_msg: str = "Invalid value"
-    ) -> None:
-        self.predicate = predicate
-        self.error_msg = error_msg
-        self._captured_locals: dict[str, Any] = {}
-
-    def __enter__(self) -> "input_validator":
-        # Retrieve parent frame's local variables upon entry
-        frame = sys._getframe(1)
-        self._captured_locals = dict(frame.f_locals)
-        return self
-
-    def __exit__(self, exc_type: Any, exc_val
+def retry_operation(attempts: int = 3) -> Callable:
+    """Decorator to retry logic on failure."""
+    def decorator(func: Callable) -> Callable:
+        @functools.wraps(func)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            last_err = None
+            for _ in range(attempts):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    last_err = e
+            raise last_err
+        return wrapper
+    return decorator
