@@ -1,49 +1,31 @@
+import time
 import functools
-from typing import Callable, Any, Type, Optional
+import logging
 
-class UtilityError(Exception):
-    """Base exception for python-utils-61."""
+logger = logging.getLogger(__name__)
 
-class SilentFail(UtilityError):
-    """Exception to swallow errors and return default."""
-
-def suppress_errors(default: Any = None, logger: Optional[Callable] = None) -> Callable:
-    """Decorator that traps all exceptions and returns default value."""
-    def decorator(func: Callable) -> Callable:
+def retry(max_attempts=3, delay=1.0, exceptions=(Exception,)): 
+    def decorator(func):
         @functools.wraps(func)
-        def wrapper(*args: Any, **kwargs: Any) -> Any:
-            try:
-                return func(*args, **kwargs)
-            except Exception as e:
-                if logger:
-                    logger(f"Suppressed error in {func.__name__}: {e}")
-                return default
-        return wrapper
-    return decorator
-
-def ensure_raises(exception_type: Type[Exception], message: str) -> Callable:
-    """Decorator that wraps function to raise specific domain exception."""
-    def decorator(func: Callable) -> Callable:
-        @functools.wraps(func)
-        def wrapper(*args: Any, **kwargs: Any) -> Any:
-            try:
-                return func(*args, **kwargs)
-            except Exception as e:
-                raise exception_type(f"{message}: {str(e)}") from e
-        return wrapper
-    return decorator
-
-def retry_operation(attempts: int = 3) -> Callable:
-    """Decorator to retry logic on failure."""
-    def decorator(func: Callable) -> Callable:
-        @functools.wraps(func)
-        def wrapper(*args: Any, **kwargs: Any) -> Any:
-            last_err = None
-            for _ in range(attempts):
+        def wrapper(*args, **kwargs):
+            last_ex = None
+            for attempt in range(max_attempts):
                 try:
                     return func(*args, **kwargs)
-                except Exception as e:
-                    last_err = e
-            raise last_err
+                except exceptions as e:
+                    last_ex = e
+                    logger.warning(f"Attempt {attempt + 1} failed: {e}. Retrying in {delay}s...")
+                    time.sleep(delay)
+            raise last_ex
         return wrapper
     return decorator
+
+class NetworkRetryError(Exception):
+    """Custom exception for exhausted retry attempts."""
+    pass
+
+def execute_with_retry(func, *args, **kwargs):
+    try:
+        return retry(max_attempts=3)(func)(*args, **kwargs)
+    except Exception as e:
+        raise NetworkRetryError(f"Operation failed after retries: {e}") from e
