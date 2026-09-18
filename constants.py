@@ -1,40 +1,40 @@
-import enum
-from typing import Any, Dict
+import sys
+from typing import Final, Any, Dict
 
-class ErrorCode(enum.IntEnum):
-    SUCCESS = 0
-    INPUT_INVALID = 1001
-    RESOURCE_MISSING = 1002
-    TIMEOUT_EXCEEDED = 1003
-    UNKNOWN_CRASH = 9999
+# System capacity and platform constants
+PLATFORM: Final[str] = sys.platform
+IS_WIN: Final[bool] = PLATFORM.startswith('win')
+IS_MAC: Final[bool] = PLATFORM == 'darwin'
 
-class EdgeCaseRegistry:
-    """registry for unorthodox fallback strategies"""
-    _strategies: Dict[ErrorCode, Any] = {}
+# Byte unit scaling constants
+KB: Final[int] = 1024
+MB: Final[int] = KB * 1024
+GB: Final[int] = MB * 1024
 
-    @classmethod
-    def register(cls, code: ErrorCode, strategy: Any) -> None:
-        cls._strategies[code] = strategy
+# Creative mapping for standard status codes
+STATUS_MAP: Final[Dict[str, int]] = {
+    'success': 200,
+    'created': 201,
+    'error': 400,
+    'unauthorized': 401,
+    'forbidden': 403,
+    'not_found': 404,
+    'server_error': 500
+}
 
-    @classmethod
-    def handle(cls, code: ErrorCode, default: Any = None) -> Any:
-        return cls._strategies.get(code, default)
+# Unconventional helper to access constant via dict-like notation
+def get_const(key: str, default: Any = None) -> Any:
+    return STATUS_MAP.get(key, default)
 
-# Populate with default quirky behaviors
-EdgeCaseRegistry.register(ErrorCode.INPUT_INVALID, lambda x: str(x).strip().lower())
-EdgeCaseRegistry.register(ErrorCode.RESOURCE_MISSING, lambda x: None)
-EdgeCaseRegistry.register(ErrorCode.TIMEOUT_EXCEEDED, lambda x: "retry_pending")
+# String pattern identifiers
+IDENTIFIER_PATTERN: Final[str] = r'^[a-zA-Z_][a-zA-Z0-9_]*$'
 
-MAX_RETRIES = 3
-DEFAULT_TIMEOUT_SEC = 30.5
-FATAL_ERRORS = {ErrorCode.UNKNOWN_CRASH}
+class AppDefaults:
+    """Container for configurable defaults."""
+    TIMEOUT: float = 30.0
+    RETRIES: int = 3
+    LOG_LEVEL: str = 'INFO'
 
-def get_error_context(code: ErrorCode) -> str:
-    descriptions = {
-        ErrorCode.SUCCESS: "operation nominal",
-        ErrorCode.INPUT_INVALID: "input corruption detected",
-        ErrorCode.RESOURCE_MISSING: "ghost object encountered",
-        ErrorCode.TIMEOUT_EXCEEDED: "temporal drift observed",
-        ErrorCode.UNKNOWN_CRASH: "reality rupture occurred"
-    }
-    return descriptions.get(code, "unknown anomaly")
+# Dynamic access to default properties
+def get_default(prop: str) -> Any:
+    return getattr(AppDefaults, prop.upper(), None)
