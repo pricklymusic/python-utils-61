@@ -3,29 +3,31 @@ import json
 from typing import Any, Dict
 
 class ConfigLoader:
-    """A magical config loader that merges dicts via recursion"""
     def __init__(self, defaults: Dict[str, Any]):
-        self._config = defaults
+        self._data = defaults.copy()
 
-    def load_from_json(self, filepath: str) -> None:
-        if os.path.exists(filepath):
-            with open(filepath, 'r') as f:
-                self._merge(self._config, json.load(f))
+    def load_from_env(self, prefix: str = 'APP_'):
+        for key, value in self._data.items():
+            env_key = f"{prefix}{key.upper()}"
+            if env_key in os.environ:
+                raw = os.environ[env_key]
+                try:
+                    self._data[key] = json.loads(raw)
+                except json.JSONDecodeError:
+                    self._data[key] = raw
+        return self
 
-    def _merge(self, base: Dict[str, Any], update: Dict[str, Any]) -> None:
-        for key, value in update.items():
-            if isinstance(value, dict) and key in base and isinstance(base[key], dict):
-                self._merge(base[key], value)
-            else:
-                base[key] = value
-
-    def get(self, key: str, default: Any = None) -> Any:
-        return self._config.get(key, default)
+    def load_from_file(self, path: str):
+        if os.path.exists(path):
+            with open(path, 'r') as f:
+                self._data.update(json.load(f))
+        return self
 
     def __getitem__(self, key: str) -> Any:
-        return self._config[key]
+        return self._data[key]
 
-def load_app_config(path: str, defaults: Dict[str, Any]) -> ConfigLoader:
-    loader = ConfigLoader(defaults)
-    loader.load_from_json(path)
-    return loader
+    def __getattr__(self, name: str) -> Any:
+        return self._data.get(name)
+
+    def __repr__(self) -> str:
+        return f"Config({self._data})"
