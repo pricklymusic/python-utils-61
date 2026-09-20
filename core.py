@@ -1,52 +1,39 @@
 import functools
-from typing import Callable, Dict, Type, Tuple, Any
+import logging
+from typing import Callable, Any
 
-class ResilientBridge:
-    """An unusual recovery mechanism that intercepts exceptions and mutates inputs
-    to retry execution instead of failing immediately.
-    """
-    def __init__(self):
-        self._strategies: Dict[Type[BaseException], Callable[..., Tuple[tuple, dict]]] = {}
+logging.basicConfig(level=logging.INFO)
 
-    def register_strategy(self, exc_type: Type[BaseException], strategy: Callable[..., Tuple[tuple, dict]]):
-        """Register an argument-healing strategy for a specific exception class."""
-        self._strategies[exc_type] = strategy
+class Pipeline:
+    def __init__(self, *funcs: Callable):
+        self.pipeline = funcs
 
-    def __call__(self, func: Callable):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            try:
-                return func(*args, **kwargs)
-            except Exception as e:
-                strategy = None
-                for exc_t, strat in self._strategies.items():
-                    if isinstance(e, exc_t):
-                        strategy = strat
-                        break
-                
-                if not strategy:
-                    raise e
-                
-                try:
-                    new_args, new_kwargs = strategy(*args, **kwargs)
-                except Exception as strategy_err:
-                    raise RuntimeError("Failed to resolve exception using registered strategy") from strategy_err
-                
-                return func(*new_args, **new_kwargs)
-        return wrapper
+    def __call__(self, initial_data: Any) -> Any:
+        return functools.reduce(lambda x, f: f(x), self.pipeline, initial_data)
 
-def zero_division_healer(*args, **kwargs) -> Tuple[tuple, dict]:
-    """Replaces numerical zeros with a tiny float value to prevent ZeroDivisionError."""
-    new_args = tuple(1e-9 if val == 0 else val for val in args)
-    new_kwargs = {k: (1e-9 if v == 0 else v) for k, v in kwargs.items()}
-    return new_args, new_kwargs
+def sanitize(data: str) -> str:
+    return data.strip().lower()
 
-def type_error_string_coercion(*args, **kwargs) -> Tuple[tuple, dict]:
-    """Attempts to stringify elements when a TypeError occurs during string ops."""
-    new_args = tuple(str(val) if val is not None else "" for val in args)
-    new_kwargs = {k: (str(v) if v is not None else "") for k, v in kwargs.items()}
-    return new_args, new_kwargs
+def validate(data: str) -> str:
+    if not data:
+        raise ValueError('empty input')
+    return data
 
-default_bridge = ResilientBridge()
-default_bridge.register_strategy(ZeroDivisionError, zero_division_healer)
-default_bridge.register_strategy(TypeError, type_error_string_coercion)
+def processor(func: Callable) -> Callable:
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        logging.info(f'executing {func.__name__}')
+        try:
+            return func(*args, **kwargs)
+        except Exception as e:
+            logging.error(f'failure in {func.__name__}: {e}')
+            raise
+    return wrapper
+
+@processor
+def execute_task(data: str) -> str:
+    flow = Pipeline(sanitize, validate)
+    return flow(data)
+
+if __name__ == '__main__':
+    print(execute_task('  PYTHON-UTILS-61  '))
