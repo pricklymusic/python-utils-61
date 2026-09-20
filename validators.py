@@ -1,35 +1,25 @@
-from typing import Any, Callable, Dict, List, Optional
+import re
+from typing import Any, Callable, Dict
 
-class DataValidator:
-    """Chainable validator using functional dispatching."""
-    def __init__(self, data: Any):
-        self.data = data
-        self._errors: List[str] = []
+def is_valid_email(email: str) -> bool:
+    pattern = r'^[\w\.-]+@[\w\.-]+\.\w+$'
+    return bool(re.match(pattern, email))
 
-    def check(self, predicate: Callable[[Any], bool], message: str) -> 'DataValidator':
-        if not predicate(self.data):
-            self._errors.append(message)
-        return self
+def satisfies_all(obj: Any, predicates: Dict[str, Callable[[Any], bool]]) -> bool:
+    return all(predicate(obj) for predicate in predicates.values())
 
-    def validate(self) -> bool:
-        return len(self._errors) == 0
-
-    @property
-    def errors(self) -> List[str]:
-        return self._errors
-
-def schema_enforce(schema: Dict[str, Callable[[Any], bool]]):
-    """Decorator for dictionary integrity verification."""
-    def decorator(func):
-        def wrapper(data: Dict[str, Any], *args, **kwargs):
-            for key, validator in schema.items():
-                if key not in data or not validator(data[key]):
-                    raise ValueError(f"Invalid data at field: {key}")
-            return func(data, *args, **kwargs)
+def enforce_types(schema: Dict[str, type]) -> Callable:
+    def decorator(func: Callable):
+        def wrapper(*args, **kwargs):
+            params = {**dict(zip(func.__code__.co_varnames, args)), **kwargs}
+            for name, expected_type in schema.items():
+                if name in params and not isinstance(params[name], expected_type):
+                    raise TypeError(f'argument {name} must be {expected_type.__name__}')
+            return func(*args, **kwargs)
         return wrapper
     return decorator
 
-# Helper predicates
-is_not_empty = lambda x: x is not None and len(str(x)) > 0
-is_numeric = lambda x: isinstance(x, (int, float))
-is_email = lambda x: isinstance(x, str) and "@" in x
+def sanitize_input(value: Any) -> str:
+    if not isinstance(value, str):
+        return str(value)
+    return ''.join(c for c in value if c.isalnum() or c in ' ._-')
