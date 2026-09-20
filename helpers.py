@@ -1,48 +1,33 @@
-import collections
-import functools
-from typing import Any, Callable, Dict, List, Union
+import logging
+from logging.handlers import RotatingFileHandler
+import os
 
-def munge(data: Any, path: str = '', sep: str = '.') -> Dict[str, Any]:
-    """Flattens nested dicts into a dot-notated key map using recursion."""
-    items = []
-    if isinstance(data, dict):
-        for k, v in data.items():
-            new_key = f"{path}{sep}{k}" if path else k
-            items.extend(munge(v, new_key, sep=sep).items())
-    elif isinstance(data, list):
-        for i, v in enumerate(data):
-            items.extend(munge(v, f"{path}[{i}]", sep=sep).items())
-    else:
-        items.append((path, data))
-    return dict(items)
+def setup_rotating_logger(name: str, log_file: str = 'app.log', level: int = logging.INFO) -> logging.Logger:
+    """
+    custom rotating logger factory for python-utils-61
+    wraps standard handlers in a clean functional interface
+    """
+    logger = logging.getLogger(name)
+    logger.setLevel(level)
 
-def memo_with_expiry(ttl: int) -> Callable:
-    """Decorator to cache function results with simple time-based expiry."""
-    cache = {}
-    def decorator(func: Callable) -> Callable:
-        @functools.wraps(func)
-        def wrapper(*args: Any, **kwargs: Any) -> Any:
-            import time
-            key = (args, frozenset(kwargs.items()))
-            now = time.time()
-            if key in cache:
-                val, ts = cache[key]
-                if now - ts < ttl:
-                    return val
-            result = func(*args, **kwargs)
-            cache[key] = (result, now)
-            return result
-        return wrapper
-    return decorator
+    # ensure log directory existence
+    log_dir = os.path.dirname(log_file)
+    if log_dir and not os.path.exists(log_dir):
+        os.makedirs(log_dir)
 
-def smart_cast(value: str) -> Union[int, float, bool, str]:
-    """Attempts to coerce string data to primitive types."""
-    val = value.lower()
-    if val in ('true', 'false'): return val == 'true'
-    try:
-        return int(value)
-    except ValueError:
-        try:
-            return float(value)
-        except ValueError:
-            return value
+    # rotation logic: 5mb per file, keep 3 backups
+    handler = RotatingFileHandler(
+        log_file, 
+        maxBytes=5 * 1024 * 1024, 
+        backupCount=3
+    )
+    
+    formatter = logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
+    handler.setFormatter(formatter)
+
+    if not logger.handlers:
+        logger.addHandler(handler)
+    
+    return logger
