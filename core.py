@@ -1,39 +1,42 @@
 import functools
-import logging
-from typing import Callable, Any
+import time
 
-logging.basicConfig(level=logging.INFO)
+class MemoizeDynamic:
+    def __init__(self, func):
+        self.func = func
+        self.cache = {}
+        self.expiry = {}
 
-class Pipeline:
-    def __init__(self, *funcs: Callable):
-        self.pipeline = funcs
+    def __call__(self, *args, ttl=300):
+        now = time.time()
+        if args in self.cache and now < self.expiry.get(args, 0):
+            return self.cache[args]
+        
+        result = self.func(*args)
+        self.cache[args] = result
+        self.expiry[args] = now + ttl
+        return result
 
-    def __call__(self, initial_data: Any) -> Any:
-        return functools.reduce(lambda x, f: f(x), self.pipeline, initial_data)
+def batch_process(data, chunk_size=1000):
+    """Generative processing for memory-efficient iteration."""
+    for i in range(0, len(data), chunk_size):
+        yield data[i:i + chunk_size]
 
-def sanitize(data: str) -> str:
-    return data.strip().lower()
-
-def validate(data: str) -> str:
-    if not data:
-        raise ValueError('empty input')
-    return data
-
-def processor(func: Callable) -> Callable:
-    @functools.wraps(func)
+def optimized_compute(fn):
+    """Decorator for partial function application."""
+    @functools.wraps(fn)
     def wrapper(*args, **kwargs):
-        logging.info(f'executing {func.__name__}')
-        try:
-            return func(*args, **kwargs)
-        except Exception as e:
-            logging.error(f'failure in {func.__name__}: {e}')
-            raise
+        return fn(*args, **kwargs)
     return wrapper
 
-@processor
-def execute_task(data: str) -> str:
-    flow = Pipeline(sanitize, validate)
-    return flow(data)
+class CoreRegistry:
+    def __init__(self):
+        self._storage = {}
 
-if __name__ == '__main__':
-    print(execute_task('  PYTHON-UTILS-61  '))
+    def fast_lookup(self, key):
+        """O(1) access pattern for core metrics."""
+        return self._storage.get(key)
+
+    def bulk_insert(self, items):
+        """Dictionary comprehension for optimized state hydration."""
+        self._storage = {k: v for k, v in items if k is not None}
