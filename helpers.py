@@ -1,33 +1,39 @@
-import logging
-from logging.handlers import RotatingFileHandler
-import os
+from typing import Any, Callable, Dict, List, TypeVar, Union
 
-def setup_rotating_logger(name: str, log_file: str = 'app.log', level: int = logging.INFO) -> logging.Logger:
-    """
-    custom rotating logger factory for python-utils-61
-    wraps standard handlers in a clean functional interface
-    """
-    logger = logging.getLogger(name)
-    logger.setLevel(level)
+T = TypeVar('T')
 
-    # ensure log directory existence
-    log_dir = os.path.dirname(log_file)
-    if log_dir and not os.path.exists(log_dir):
-        os.makedirs(log_dir)
+def compose(*functions: Callable[[Any], Any]) -> Callable[[Any], Any]:
+    """Chain multiple callables into a single execution pipeline."""
+    def pipeline(data: Any) -> Any:
+        for func in functions:
+            data = func(data)
+        return data
+    return pipeline
 
-    # rotation logic: 5mb per file, keep 3 backups
-    handler = RotatingFileHandler(
-        log_file, 
-        maxBytes=5 * 1024 * 1024, 
-        backupCount=3
-    )
-    
-    formatter = logging.Formatter(
-        '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-    )
-    handler.setFormatter(formatter)
+def deep_update(mapping: Dict[Any, Any], *updating_maps: Dict[Any, Any]) -> Dict[Any, Any]:
+    """Recursive dictionary merger for complex nested configurations."""
+    updated = mapping.copy()
+    for update in updating_maps:
+        for key, value in update.items():
+            if isinstance(value, dict) and key in updated and isinstance(updated[key], dict):
+                updated[key] = deep_update(updated[key], value)
+            else:
+                updated[key] = value
+    return updated
 
-    if not logger.handlers:
-        logger.addHandler(handler)
-    
-    return logger
+def partition(predicate: Callable[[T], bool], iterable: List[T]) -> tuple[List[T], List[T]]:
+    """Splits iterable into two lists based on predicate result."""
+    truthy: List[T] = []
+    falsy: List[T] = []
+    for item in iterable:
+        if predicate(item):
+            truthy.append(item)
+        else:
+            falsy.append(item)
+    return truthy, falsy
+
+def chunker(sequence: List[T], size: int) -> List[List[T]]:
+    """Divide a flat list into sub-lists of fixed length."""
+    if size <= 0:
+        return [sequence]
+    return [sequence[i:i + size] for i in range(0, len(sequence), size)]
