@@ -1,48 +1,28 @@
-import functools
 import time
+import functools
+import random
+from typing import Callable, Any
 
-class MemoizeCache:
-    def __init__(self, ttl_seconds=60):
-        self.cache = {}
-        self.ttl = ttl_seconds
-
-    def __call__(self, func):
+def retry_with_backoff(retries: int = 3, base_delay: float = 0.5):
+    def decorator(func: Callable):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            key = (func.__name__, args, frozenset(kwargs.items()))
-            now = time.time()
-            if key in self.cache:
-                result, timestamp = self.cache[key]
-                if now - timestamp < self.ttl:
-                    return result
-            result = func(*args, **kwargs)
-            self.cache[key] = (result, now)
-            return result
+            last_exception = None
+            for attempt in range(retries):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    last_exception = e
+                    sleep_time = (base_delay * (2 ** attempt)) + (random.uniform(0, 0.1))
+                    time.sleep(sleep_time)
+            raise last_exception
         return wrapper
+    return decorator
 
-    def purge(self):
-        self.cache.clear()
-
-class FastBuffer:
-    def __init__(self, chunk_size=1024):
-        self.buffer = []
-        self.chunk_size = chunk_size
-
-    def push(self, data):
-        self.buffer.append(data)
-        if len(self.buffer) >= self.chunk_size:
-            return self.flush()
-        return None
-
-    def flush(self):
-        output = "".join(self.buffer)
-        self.buffer = []
-        return output
-
-def batch_process(iterable, n):
-    iterator = iter(iterable)
-    while True:
-        batch = [next(iterator) for _ in range(n)]
-        if not batch:
-            break
-        yield batch
+class NetworkCircuit:
+    def __init__(self, target_func: Callable):
+        self.target = target_func
+    
+    def execute(self, *args, **kwargs) -> Any:
+        proxy = retry_with_backoff()(self.target)
+        return proxy(*args, **kwargs)
