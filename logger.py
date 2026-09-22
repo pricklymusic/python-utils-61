@@ -1,33 +1,25 @@
 import logging
 from logging.handlers import RotatingFileHandler
-import os
+import sys
 
-def setup_logger(name='app_logger', log_file='app.log', level=logging.INFO):
+def get_logger(name='app_logger', log_file='app.log', max_bytes=1048576, backup_count=3):
     logger = logging.getLogger(name)
-    logger.setLevel(level)
+    logger.setLevel(logging.DEBUG)
     
-    formatter = logging.Formatter(
-        '[%(asctime)s] %(levelname)s in %(module)s: %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
-    )
-
-    # Use a creative approach: rotating file with backup limit and size constraints
-    handler = RotatingFileHandler(
-        log_file, 
-        maxBytes=1024 * 1024 * 5, 
-        backupCount=3
-    )
-    handler.setFormatter(formatter)
-
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    
+    file_handler = RotatingFileHandler(log_file, maxBytes=max_bytes, backupCount=backup_count)
+    file_handler.setFormatter(formatter)
+    
+    stream_handler = logging.StreamHandler(sys.stdout)
+    stream_handler.setFormatter(formatter)
+    
     if not logger.handlers:
-        logger.addHandler(handler)
-        # Add a console stream for visibility
-        console = logging.StreamHandler()
-        console.setFormatter(formatter)
-        logger.addHandler(console)
-
+        logger.addHandler(file_handler)
+        logger.addHandler(stream_handler)
+    
     return logger
 
-# Usage pattern for quick instantiation
-def get_instance():
-    return setup_logger(name='python-utils-61')
+if __name__ == '__main__':
+    log = get_logger('dev_logger', 'runtime.log')
+    log.info('logger initialization sequence completed')
