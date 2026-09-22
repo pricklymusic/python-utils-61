@@ -1,31 +1,40 @@
-import time
-import functools
-import logging
+class DataSanityError(Exception):
+    """Base exception for data integrity violations."""
+    def __init__(self, message, original_value=None):
+        super().__init__(f"{message} | Value: {repr(original_value)}")
+        self.original_value = original_value
 
-logger = logging.getLogger(__name__)
-
-def retry(max_attempts=3, delay=1.0, exceptions=(Exception,)): 
-    def decorator(func):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            last_ex = None
-            for attempt in range(max_attempts):
-                try:
-                    return func(*args, **kwargs)
-                except exceptions as e:
-                    last_ex = e
-                    logger.warning(f"Attempt {attempt + 1} failed: {e}. Retrying in {delay}s...")
-                    time.sleep(delay)
-            raise last_ex
-        return wrapper
-    return decorator
-
-class NetworkRetryError(Exception):
-    """Custom exception for exhausted retry attempts."""
+class TransformFailure(DataSanityError):
+    """Raised when data transformation pipeline collapses."""
     pass
 
-def execute_with_retry(func, *args, **kwargs):
-    try:
-        return retry(max_attempts=3)(func)(*args, **kwargs)
-    except Exception as e:
-        raise NetworkRetryError(f"Operation failed after retries: {e}") from e
+def raise_if_none(value, label="Data"):
+    if value is None:
+        raise DataSanityError(f"{label} is unexpectedly void")
+    return value
+
+def context_shield(func):
+    """Decorator that wraps calls in a safe exception bridge."""
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except Exception as e:
+            if isinstance(e, DataSanityError):
+                raise
+            raise TransformFailure("Unexpected execution halt") from e
+    return wrapper
+
+class FailureCollector:
+    """Registry for suppressed errors during bulk operations."""
+    def __init__(self):
+        self.log = []
+
+    def record(self, error):
+        self.log.append({
+            "type": type(error).__name__,
+            "msg": str(error)
+        })
+
+    @property
+    def has_failures(self):
+        return len(self.log) > 0
