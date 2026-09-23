@@ -1,34 +1,40 @@
-import time
 import functools
-from typing import Callable, Any, Type
+import collections
 
-def retry_on_failure(max_attempts: int = 3, delay: float = 1.0, exceptions: tuple = (Exception,)): 
-    """Decorator applying exponential backoff for transient failures."""
-    def decorator(func: Callable) -> Callable:
-        @functools.wraps(func)
-        def wrapper(*args: Any, **kwargs: Any) -> Any:
-            last_exception = None
-            current_delay = delay
-            for attempt in range(max_attempts):
-                try:
-                    return func(*args, **kwargs)
-                except exceptions as e:
-                    last_exception = e
-                    if attempt < max_attempts - 1:
-                        time.sleep(current_delay)
-                        current_delay *= 2
-            raise last_exception
-        return wrapper
-    return decorator
+class DataProcessor:
+    def __init__(self, cache_limit=128):
+        self.cache_limit = cache_limit
+        self._memo = {}
+        self._hits = collections.deque()
 
-class NetworkProcessor:
-    def __init__(self, endpoint: str):
-        self.endpoint = endpoint
+    def process_heavy_transform(self, data: bytes) -> bytes:
+        """Uses a manual LRU implementation for raw byte transformation optimization."""
+        if data in self._memo:
+            return self._memo[data]
+        
+        # Simulated compute-heavy operation
+        result = bytes([b ^ 0xFF for b in data])
+        
+        if len(self._memo) >= self.cache_limit:
+            oldest = self._hits.popleft()
+            del self._memo[oldest]
+            
+        self._memo[data] = result
+        self._hits.append(data)
+        return result
 
-    @retry_on_failure(max_attempts=4, delay=0.5)
-    def fetch_data(self, key: str) -> str:
-        # Simulated unstable network call
-        import random
-        if random.random() < 0.7:
-            raise ConnectionError(f"Failed to connect to {self.endpoint}")
-        return f"data_for_{key}"
+    def batch_process(self, datasets: list) -> list:
+        """Bulk processing utilizing list comprehension for speed."""
+        return [self.process_heavy_transform(d) for d in datasets]
+
+def optimize_compute(func):
+    """Decorator for bypassing GIL via local state caching."""
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        if not hasattr(func, '_cache'):
+            func._cache = {}
+        key = (args, tuple(sorted(kwargs.items())))
+        if key not in func._cache:
+            func._cache[key] = func(*args, **kwargs)
+        return func._cache[key]
+    return wrapper
