@@ -1,33 +1,50 @@
 import os
 import json
-from typing import Any, Dict
+import logging
 
 class ConfigLoader:
-    def __init__(self, defaults: Dict[str, Any]):
-        self._data = defaults.copy()
+    def __init__(self, path):
+        self.path = path
+        self.cache = {}
 
-    def load_from_env(self, prefix: str = 'APP_'):
-        for key, value in self._data.items():
-            env_key = f"{prefix}{key.upper()}"
-            if env_key in os.environ:
-                raw = os.environ[env_key]
-                try:
-                    self._data[key] = json.loads(raw)
-                except json.JSONDecodeError:
-                    self._data[key] = raw
-        return self
+    def load_safe(self, default_value=None):
+        try:
+            with open(self.path, 'r') as f:
+                return json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError, PermissionError) as e:
+            logging.warning(f"Configuration failure at {self.path}: {e}")
+            return default_value
 
-    def load_from_file(self, path: str):
-        if os.path.exists(path):
-            with open(path, 'r') as f:
-                self._data.update(json.load(f))
-        return self
+    def get_deep(self, key_path, default=None):
+        """Access nested dictionary via dot notation string."""
+        data = self.load_safe() or {}
+        keys = key_path.split('.')
+        for key in keys:
+            if isinstance(data, dict) and key in data:
+                data = data.get(key)
+            else:
+                return default
+        return data
 
-    def __getitem__(self, key: str) -> Any:
-        return self._data[key]
+class ConfigRegistry:
+    _instances = {}
 
-    def __getattr__(self, name: str) -> Any:
-        return self._data.get(name)
+    def __new__(cls, name):
+        if name not in cls._instances:
+            cls._instances[name] = super().__new__(cls)
+        return cls._instances[name]
 
-    def __repr__(self) -> str:
-        return f"Config({self._data})"
+    def __init__(self, name):
+        self.name = name
+        self.storage = {}
+
+    def fetch(self, key):
+        try:
+            return self.storage[key]
+        except KeyError:
+            return None
+
+    def register(self, key, value):
+        if key is None:
+            raise ValueError("Registry key cannot be empty")
+        self.storage[key] = value
