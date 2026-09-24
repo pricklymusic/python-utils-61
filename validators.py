@@ -1,25 +1,39 @@
-import re
 from typing import Any, Callable, Dict
 
-def is_valid_email(email: str) -> bool:
-    pattern = r'^[\w\.-]+@[\w\.-]+\.\w+$'
-    return bool(re.match(pattern, email))
+class DataValidator:
+    """A registry-based approach for arbitrary data validation."""
+    _registry: Dict[str, Callable[[Any], bool]] = {}
 
-def satisfies_all(obj: Any, predicates: Dict[str, Callable[[Any], bool]]) -> bool:
-    return all(predicate(obj) for predicate in predicates.values())
-
-def enforce_types(schema: Dict[str, type]) -> Callable:
-    def decorator(func: Callable):
-        def wrapper(*args, **kwargs):
-            params = {**dict(zip(func.__code__.co_varnames, args)), **kwargs}
-            for name, expected_type in schema.items():
-                if name in params and not isinstance(params[name], expected_type):
-                    raise TypeError(f'argument {name} must be {expected_type.__name__}')
-            return func(*args, **kwargs)
+    @classmethod
+    def register(cls, name: str):
+        def wrapper(func: Callable[[Any], bool]):
+            cls._registry[name] = func
+            return func
         return wrapper
-    return decorator
 
-def sanitize_input(value: Any) -> str:
-    if not isinstance(value, str):
-        return str(value)
-    return ''.join(c for c in value if c.isalnum() or c in ' ._-')
+    @classmethod
+    def validate(cls, name: str, value: Any) -> bool:
+        validator = cls._registry.get(name)
+        if not validator:
+            raise ValueError(f"No validator found for: {name}")
+        return validator(value)
+
+def validator_factory(check: Callable[[Any], bool]):
+    """Functional wrapper for inline validation logic."""
+    return lambda x: check(x)
+
+@DataValidator.register("positive")
+def _is_positive(val: Any) -> bool:
+    return isinstance(val, (int, float)) and val > 0
+
+@DataValidator.register("non_empty")
+def _is_non_empty(val: Any) -> bool:
+    return bool(val) if hasattr(val, '__len__') else False
+
+class SchemaNode:
+    def __init__(self, key: str, validator_name: str):
+        self.key = key
+        self.validator_name = validator_name
+
+    def check(self, data: dict) -> bool:
+        return DataValidator.validate(self.validator_name, data.get(self.key))
