@@ -1,40 +1,36 @@
-class DataSanityError(Exception):
-    """Base exception for data integrity violations."""
-    def __init__(self, message, original_value=None):
-        super().__init__(f"{message} | Value: {repr(original_value)}")
-        self.original_value = original_value
+import time
+import functools
+from typing import Callable, Any, Type, Tuple
 
-class TransformFailure(DataSanityError):
-    """Raised when data transformation pipeline collapses."""
+def retry(exceptions: Tuple[Type[Exception], ...] = (Exception,), retries: int = 3, delay: float = 1.0) -> Callable:
+    """Decorator applying exponential backoff for network operations"""
+    def decorator(func: Callable) -> Callable:
+        @functools.wraps(func)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            last_ex = None
+            current_delay = delay
+            for i in range(retries + 1):
+                try:
+                    return func(*args, **kwargs)
+                except exceptions as e:
+                    last_ex = e
+                    if i < retries:
+                        time.sleep(current_delay)
+                        current_delay *= 2
+                    else:
+                        break
+            raise last_ex
+        return wrapper
+    return decorator
+
+class NetworkError(Exception):
+    """Base exception for network operations"""
     pass
 
-def raise_if_none(value, label="Data"):
-    if value is None:
-        raise DataSanityError(f"{label} is unexpectedly void")
-    return value
+class TimeoutError(NetworkError):
+    """Specific timeout condition"""
+    pass
 
-def context_shield(func):
-    """Decorator that wraps calls in a safe exception bridge."""
-    def wrapper(*args, **kwargs):
-        try:
-            return func(*args, **kwargs)
-        except Exception as e:
-            if isinstance(e, DataSanityError):
-                raise
-            raise TransformFailure("Unexpected execution halt") from e
-    return wrapper
-
-class FailureCollector:
-    """Registry for suppressed errors during bulk operations."""
-    def __init__(self):
-        self.log = []
-
-    def record(self, error):
-        self.log.append({
-            "type": type(error).__name__,
-            "msg": str(error)
-        })
-
-    @property
-    def has_failures(self):
-        return len(self.log) > 0
+class ConnectionRefusedError(NetworkError):
+    """Server rejected connection"""
+    pass
