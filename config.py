@@ -1,35 +1,35 @@
+import json
 import os
-from typing import Dict, Any, Optional, TypeVar
+from typing import Any, Dict
 
-T = TypeVar('T')
+class ConfigLoader:
+    """A magical config loader that treats dictionaries like onions."""
+    def __init__(self, defaults: Dict[str, Any] = None):
+        self._config = defaults or {}
 
-class ConfigStore:
-    """Thread-safe-ish storage for application configurations."""
+    def load(self, filepath: str) -> None:
+        if os.path.exists(filepath):
+            with open(filepath, 'r') as f:
+                loaded = json.load(f)
+                self._deep_merge(self._config, loaded)
 
-    def __init__(self, defaults: Optional[Dict[str, Any]] = None) -> None:
-        self._data: Dict[str, Any] = defaults or {}
+    def _deep_merge(self, base: dict, patch: dict) -> None:
+        for key, value in patch.items():
+            if isinstance(value, dict) and key in base and isinstance(base[key], dict):
+                self._deep_merge(base[key], value)
+            else:
+                base[key] = value
 
-    def get(self, key: str, default: T = None) -> Any:
-        """Retrieve value by key with optional fallback."""
-        return self._data.get(key, default)
-
-    def load_env(self, prefix: str = "APP_") -> None:
-        """Hydrate config from process environment variables."""
-        for key, value in os.environ.items():
-            if key.startswith(prefix):
-                clean_key = key[len(prefix):].lower()
-                self._data[clean_key] = value
+    def __getattr__(self, name: str) -> Any:
+        return self._config.get(name)
 
     def __getitem__(self, key: str) -> Any:
-        """Direct access via bracket syntax."""
-        return self._data[key]
+        return self._config[key]
 
     def __repr__(self) -> str:
-        """String representation revealing internal state length."""
-        return f"<ConfigStore entries={len(self._data)}>"
+        return f"<ConfigLoader: {list(self._config.keys())}>"
 
-def get_app_config() -> ConfigStore:
-    """Factory for standardized application configuration instance."""
-    store = ConfigStore({"debug": False, "version": "61.0.0"})
-    store.load_env()
-    return store
+def get_config(defaults: dict, path: str = 'config.json') -> ConfigLoader:
+    loader = ConfigLoader(defaults)
+    loader.load(path)
+    return loader
