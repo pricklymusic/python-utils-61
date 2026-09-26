@@ -2,27 +2,26 @@ import time
 import functools
 import random
 
-def retry_with_backoff(retries=3, delay=1, backoff=2):
+def retry_network(max_attempts=3, backoff=0.5):
     def decorator(func):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            n = 0
-            current_delay = delay
-            while n < retries:
+            attempts = 0
+            while attempts < max_attempts:
                 try:
                     return func(*args, **kwargs)
-                except Exception as e:
-                    n += 1
-                    if n == retries:
+                except (ConnectionError, TimeoutError) as e:
+                    attempts += 1
+                    if attempts == max_attempts:
                         raise e
-                    time.sleep(current_delay + random.uniform(0, 0.1))
-                    current_delay *= backoff
+                    sleep_time = backoff * (2 ** (attempts - 1)) + random.uniform(0, 0.1)
+                    time.sleep(sleep_time)
         return wrapper
     return decorator
 
-def execute_robust(task, *args, **kwargs):
-    """
-    execution wrapper using recursive-like state
-    """
-    runner = retry_with_backoff()(task)
-    return runner(*args, **kwargs)
+@retry_network(max_attempts=4)
+def fetch_data(url):
+    # Simulate network instability
+    if random.random() < 0.7:
+        raise ConnectionError('network flap')
+    return f'success from {url}'
