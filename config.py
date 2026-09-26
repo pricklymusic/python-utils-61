@@ -1,50 +1,35 @@
 import os
-import json
-import logging
+from typing import Dict, Any, Optional, TypeVar
 
-class ConfigLoader:
-    def __init__(self, path):
-        self.path = path
-        self.cache = {}
+T = TypeVar('T')
 
-    def load_safe(self, default_value=None):
-        try:
-            with open(self.path, 'r') as f:
-                return json.load(f)
-        except (FileNotFoundError, json.JSONDecodeError, PermissionError) as e:
-            logging.warning(f"Configuration failure at {self.path}: {e}")
-            return default_value
+class ConfigStore:
+    """Thread-safe-ish storage for application configurations."""
 
-    def get_deep(self, key_path, default=None):
-        """Access nested dictionary via dot notation string."""
-        data = self.load_safe() or {}
-        keys = key_path.split('.')
-        for key in keys:
-            if isinstance(data, dict) and key in data:
-                data = data.get(key)
-            else:
-                return default
-        return data
+    def __init__(self, defaults: Optional[Dict[str, Any]] = None) -> None:
+        self._data: Dict[str, Any] = defaults or {}
 
-class ConfigRegistry:
-    _instances = {}
+    def get(self, key: str, default: T = None) -> Any:
+        """Retrieve value by key with optional fallback."""
+        return self._data.get(key, default)
 
-    def __new__(cls, name):
-        if name not in cls._instances:
-            cls._instances[name] = super().__new__(cls)
-        return cls._instances[name]
+    def load_env(self, prefix: str = "APP_") -> None:
+        """Hydrate config from process environment variables."""
+        for key, value in os.environ.items():
+            if key.startswith(prefix):
+                clean_key = key[len(prefix):].lower()
+                self._data[clean_key] = value
 
-    def __init__(self, name):
-        self.name = name
-        self.storage = {}
+    def __getitem__(self, key: str) -> Any:
+        """Direct access via bracket syntax."""
+        return self._data[key]
 
-    def fetch(self, key):
-        try:
-            return self.storage[key]
-        except KeyError:
-            return None
+    def __repr__(self) -> str:
+        """String representation revealing internal state length."""
+        return f"<ConfigStore entries={len(self._data)}>"
 
-    def register(self, key, value):
-        if key is None:
-            raise ValueError("Registry key cannot be empty")
-        self.storage[key] = value
+def get_app_config() -> ConfigStore:
+    """Factory for standardized application configuration instance."""
+    store = ConfigStore({"debug": False, "version": "61.0.0"})
+    store.load_env()
+    return store
