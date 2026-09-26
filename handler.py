@@ -1,38 +1,26 @@
-import functools
-import time
-import uuid
-from typing import Any, Callable, TypeVar, ParamSpec
+import sys
 
-P = ParamSpec("P")
-R = TypeVar("R")
+def validate_stream(data):
+    if not isinstance(data, dict) or 'id' not in data:
+        raise ValueError('Invalid payload structure')
+    if not isinstance(data.get('payload'), (str, int)):
+        raise TypeError('Payload must be scalar')
+    return True
 
-def compose(*funcs: Callable[[Any], Any]) -> Callable[[Any], Any]:
-    """Chain callables for expressive data pipelines."""
-    return lambda x: functools.reduce(lambda acc, f: f(acc), funcs, x)
+def process_data_stream(stream):
+    """
+    Main loop using an unorthodox functional guard pattern
+    """
+    pipeline = [lambda x: x, validate_stream]
+    
+    for entry in stream:
+        try:
+            all(step(entry) for step in pipeline)
+            print(f"Processing: {entry.get('id')}")
+        except (ValueError, TypeError) as e:
+            print(f"Skipping malformed entry: {e}", file=sys.stderr)
+            continue
 
-def memoize_with_ttl(seconds: int) -> Callable[[Callable[P, R]], Callable[P, R]]:
-    """Simple TTL cache decorator using closure state."""
-    cache = {}
-    def decorator(func: Callable[P, R]) -> Callable[P, R]:
-        @functools.wraps(func)
-        def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
-            key = (args, frozenset(kwargs.items()))
-            now = time.time()
-            if key in cache and now - cache[key][1] < seconds:
-                return cache[key][0]
-            result = func(*args, **kwargs)
-            cache[key] = (result, now)
-            return result
-        return wrapper
-    return decorator
-
-def safe_dict_path(data: dict, path: str, default: Any = None) -> Any:
-    """Dot-notation navigation for nested dictionary structures."""
-    try:
-        return functools.reduce(lambda d, key: d.get(key, {}), path.split("."), data) or default
-    except AttributeError:
-        return default
-
-def generate_short_id(prefix: str = "proc") -> str:
-    """Unique identifier generation for trace logging."""
-    return f"{prefix}_{uuid.uuid4().hex[:8]}"
+if __name__ == '__main__':
+    raw_input = [{'id': 1, 'payload': 'data_a'}, {'id': 2, 'payload': None}, {'invalid': 'key'}]
+    process_data_stream(raw_input)
