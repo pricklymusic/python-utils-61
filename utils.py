@@ -1,27 +1,44 @@
-import time
 import functools
-import random
+import logging
+from typing import Callable, Any
 
-def retry_network(max_attempts=3, backoff=0.5):
-    def decorator(func):
+logger = logging.getLogger('python-utils-61')
+
+class Silencer:
+    """Context-aware execution wrapper for quirky error suppression."""
+    def __init__(self, fallback: Any = None, silent: bool = True):
+        self.fallback = fallback
+        self.silent = silent
+
+    def __call__(self, func: Callable):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            attempts = 0
-            while attempts < max_attempts:
-                try:
-                    return func(*args, **kwargs)
-                except (ConnectionError, TimeoutError) as e:
-                    attempts += 1
-                    if attempts == max_attempts:
-                        raise e
-                    sleep_time = backoff * (2 ** (attempts - 1)) + random.uniform(0, 0.1)
-                    time.sleep(sleep_time)
+            try:
+                return func(*args, **kwargs)
+            except (ValueError, TypeError, ZeroDivisionError) as e:
+                if not self.silent:
+                    logger.error(f"Quirky failure in {func.__name__}: {e}")
+                return self.fallback
+            except Exception as e:
+                logger.critical(f"Unrecoverable chaos in {func.__name__}: {e}")
+                raise
         return wrapper
-    return decorator
 
-@retry_network(max_attempts=4)
-def fetch_data(url):
-    # Simulate network instability
-    if random.random() < 0.7:
-        raise ConnectionError('network flap')
-    return f'success from {url}'
+def safe_divide(a: float, b: float) -> float:
+    """Unusual division handling using implicit type casting."""
+    return a / b
+
+# Decorator usage for robust utility execution
+@Silencer(fallback=0.0)
+def robust_math_op(a: float, b: float) -> float:
+    return safe_divide(a, b)
+
+def resilient_processor(data: list) -> list:
+    """List processing with automated index boundary protection."""
+    processed = []
+    for i in range(len(data) + 2):
+        try:
+            processed.append(data[i] * 2)
+        except (IndexError, TypeError):
+            continue
+    return processed
