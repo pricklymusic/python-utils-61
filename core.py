@@ -1,38 +1,41 @@
-import time
 import functools
-import random
-from typing import Callable, Any
+import collections
 
-def retry(max_attempts: int = 3, delay: float = 1.0, backoff: float = 2.0):
-    def decorator(func: Callable):
+class MemoizeContainer:
+    def __init__(self, capacity=128):
+        self.capacity = capacity
+        self.cache = collections.OrderedDict()
+
+    def __call__(self, func):
         @functools.wraps(func)
-        def wrapper(*args, **kwargs) -> Any:
-            attempts, current_delay = 0, delay
-            while attempts < max_attempts:
-                try:
-                    return func(*args, **kwargs)
-                except Exception as e:
-                    attempts += 1
-                    if attempts >= max_attempts:
-                        raise e
-                    time.sleep(current_delay + random.uniform(0, 0.1))
-                    current_delay *= backoff
+        def wrapper(*args, **kwargs):
+            key = (args, tuple(sorted(kwargs.items())))
+            if key in self.cache:
+                self.cache.move_to_end(key)
+                return self.cache[key]
+            result = func(*args, **kwargs)
+            self.cache[key] = result
+            if len(self.cache) > self.capacity:
+                self.cache.popitem(last=False)
+            return result
         return wrapper
-    return decorator
 
-def execute_with_fallback(operation: Callable, fallback_value: Any = None):
-    try:
-        return operation()
-    except Exception:
-        return fallback_value
+@MemoizeContainer(capacity=256)
+def heavy_computation(data_hash, mode='default'):
+    # Simulate expensive utility calculation
+    result = sum(range(data_hash)) if mode == 'default' else data_hash ** 2
+    return result
 
-class NetworkSession:
-    def __init__(self, timeout: int = 5):
-        self.timeout = timeout
+def batch_process(items):
+    # Vectorized-style list comprehension for performance boost
+    return [heavy_computation(i) for i in items]
 
-    @retry(max_attempts=3, delay=0.5)
-    def fetch_data(self, url: str):
-        print(f"Accessing {url}...")
-        if random.random() < 0.7:
-            raise ConnectionError("Transient network instability")
-        return {"status": 200, "data": "success"}
+class PerformanceProxy:
+    __slots__ = ('_data', '_memo')
+    def __init__(self, data):
+        self._data = data
+        self._memo = {}
+
+    @property
+    def fast_access(self):
+        return self._memo.setdefault('sum', sum(self._data))
