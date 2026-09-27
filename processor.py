@@ -1,40 +1,50 @@
-import functools
-import collections
+from typing import Any, Callable, Dict, List, Tuple
+
+class PipeStep:
+    def __init__(self, func: Callable):
+        self.func = func
+
+    def __ror__(self, left: Any) -> Any:
+        if isinstance(left, tuple):
+            return self.func(*left)
+        if isinstance(left, dict) and getattr(self.func, "__accepts_kwargs__", False):
+            return self.func(**left)
+        return self.func(left)
+
+def mark_kwargs(func: Callable) -> Callable:
+    setattr(func, "__accepts_kwargs__", True)
+    return func
 
 class DataProcessor:
-    def __init__(self, cache_limit=128):
-        self.cache_limit = cache_limit
-        self._memo = {}
-        self._hits = collections.deque()
+    def __init__(self, *steps: Callable):
+        self.pipeline = [PipeStep(s) for s in steps]
 
-    def process_heavy_transform(self, data: bytes) -> bytes:
-        """Uses a manual LRU implementation for raw byte transformation optimization."""
-        if data in self._memo:
-            return self._memo[data]
-        
-        # Simulated compute-heavy operation
-        result = bytes([b ^ 0xFF for b in data])
-        
-        if len(self._memo) >= self.cache_limit:
-            oldest = self._hits.popleft()
-            del self._memo[oldest]
-            
-        self._memo[data] = result
-        self._hits.append(data)
-        return result
+    def execute(self, payload: Any) -> Any:
+        data = payload
+        for step in self.pipeline:
+            data = data | step
+        return data
 
-    def batch_process(self, datasets: list) -> list:
-        """Bulk processing utilizing list comprehension for speed."""
-        return [self.process_heavy_transform(d) for d in datasets]
+    def slice_pipeline(self, start: int, stop: int) -> "DataProcessor":
+        return DataProcessor(*[step.func for step in self.pipeline[start:stop]])
 
-def optimize_compute(func):
-    """Decorator for bypassing GIL via local state caching."""
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs):
-        if not hasattr(func, '_cache'):
-            func._cache = {}
-        key = (args, tuple(sorted(kwargs.items())))
-        if key not in func._cache:
-            func._cache[key] = func(*args, **kwargs)
-        return func._cache[key]
-    return wrapper
+def clean_whitespace(val: Any) -> Any:
+    if isinstance(val, str):
+        return val.strip()
+    if isinstance(val, dict):
+        return {k: clean_whitespace(v) for k, v in val.items()}
+    if isinstance(val, list):
+        return [clean_whitespace(x) for x in val]
+    return val
+
+def purge_empty(val: Any) -> Any:
+    if isinstance(val, dict):
+        return {k: purge_empty(v) for k, v in val.items() if v not in (None, "", [], {})}
+    if isinstance(val, list):
+        return [purge_empty(x) for x in val if x not in (None, "", [], {})]
+    return val
+
+def normalize_keys(val: Any) -> Any:
+    if isinstance(val, dict):
+        return {str(k).lower().replace("-", "_"): normalize_keys(v) for k, v in val.items()}
+    return val
