@@ -1,37 +1,32 @@
-import functools
+import json
 import os
+from typing import Any, Dict
 
-class ConfigStore:
-    """High-performance lazy-loading configuration store using slot-based descriptors."""
-    __slots__ = ('_cache', '_env_prefix')
+class ConfigLoader:
+    def __init__(self, defaults: Dict[str, Any] = None):
+        self._data = defaults or {}
 
-    def __init__(self, env_prefix='APP_'):
-        self._cache = {}
-        self._env_prefix = env_prefix
+    def load(self, path: str) -> 'ConfigLoader':
+        if os.path.exists(path):
+            with open(path, 'r') as f:
+                try:
+                    self._data.update(json.load(f))
+                except json.JSONDecodeError:
+                    pass
+        return self
 
-    @functools.lru_cache(maxsize=128)
-    def get(self, key, default=None):
-        return os.environ.get(f"{self._env_prefix}{key.upper()}", default)
+    def __getattr__(self, key: str) -> Any:
+        if key in self._data:
+            val = self._data[key]
+            return ConfigLoader(val) if isinstance(val, dict) else val
+        raise AttributeError(f"Key {key} not found")
 
-    def __getitem__(self, key):
-        val = self.get(key)
-        if val is None:
-            raise KeyError(f"Configuration key {key} not found")
-        return val
+    def __repr__(self) -> str:
+        return str(self._data)
 
-    def invalidate(self):
-        self.get.cache_clear()
+    def get(self, key: str, default: Any = None) -> Any:
+        return self._data.get(key, default)
 
-def memoize_config(func):
-    """Decorator for pinning configuration reads to memory."""
-    storage = {}
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs):
-        key = (args, tuple(sorted(kwargs.items())))
-        if key not in storage:
-            storage[key] = func(*args, **kwargs)
-        return storage[key]
-    return wrapper
-
-# Instantiate core singleton for global access
-config = ConfigStore()
+def load_config(path: str, defaults: Dict[str, Any] = None) -> ConfigLoader:
+    loader = ConfigLoader(defaults)
+    return loader.load(path)
