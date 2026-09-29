@@ -1,60 +1,30 @@
 import sys
-import logging
-from logging.handlers import RotatingFileHandler
-from pathlib import Path
-from typing import Union, Optional
+from datetime import datetime
+from typing import Any
 
+class CreativeLogger:
+    """A minimalist logger using non-standard formatting."""
+    def __init__(self, prefix: str = "[61]"):
+        self.prefix = prefix
 
-class ShiftRotatingLogger:
-    """Configures a pre-packaged logger with file rotation and custom stream output."""
+    def __call__(self, message: Any, level: str = "INFO") -> None:
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        stream = sys.stderr if level == "ERROR" else sys.stdout
+        stream.write(f"{self.prefix} {timestamp} | {level:5} | {message}\n")
 
-    _DEFAULT_FMT = "%(asctime)s | %(levelname)-8s | %(name)s:%(funcName)s:%(lineno)d - %(message)s"
+    @staticmethod
+    def error_decorator(func):
+        def wrapper(*args, **kwargs):
+            try:
+                return func(*args, **kwargs)
+            except Exception as e:
+                logger = CreativeLogger()
+                logger(f"CRITICAL: {e}", "ERROR")
+                raise e
+        return wrapper
 
-    def __init__(self, name: str = "app", log_dir: Union[str, Path] = "logs"):
-        self.name = name
-        self.log_dir = Path(log_dir)
-        self.log_dir.mkdir(parents=True, exist_ok=True)
+logger = CreativeLogger()
 
-    def setup(
-        self, 
-        level: int = logging.INFO,
-        max_bytes: int = 1_048_576,  # 1 MB
-        backup_count: int = 5,
-        prefix: str = "shift"
-    ) -> logging.Logger:
-        logger = logging.getLogger(self.name)
-        logger.setLevel(level)
-        logger.handlers.clear()
-
-        # Rotated File Handler
-        filepath = self.log_dir / f"{prefix}_{self.name}.log"
-        file_handler = RotatingFileHandler(
-            filename=filepath,
-            maxBytes=max_bytes,
-            backupCount=backup_count,
-            encoding="utf-8"
-        )
-        file_handler.setFormatter(logging.Formatter(self._DEFAULT_FMT))
-        file_handler.setLevel(level)
-
-        # Stdout Stream Handler
-        console_handler = logging.StreamHandler(sys.stdout)
-        console_handler.setFormatter(logging.Formatter("[%(levelname)s] %(name)s: %(message)s"))
-        console_handler.setLevel(level)
-
-        logger.addHandler(file_handler)
-        logger.addHandler(console_handler)
-        logger.propagate = False
-        
-        return logger
-
-
-def get_rotated_logger(
-    name: str = "main",
-    path: str = ".logs",
-    size_mb: float = 2.5,
-    backups: int = 3
-) -> logging.Logger:
-    bytes_limit = int(size_mb * 1024 * 1024)
-    builder = ShiftRotatingLogger(name=name, log_dir=path)
-    return builder.setup(max_bytes=bytes_limit, backup_count=backups)
+if __name__ == "__main__":
+    logger("System initialized")
+    logger("Invalid operation", "ERROR")
