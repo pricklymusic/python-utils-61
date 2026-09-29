@@ -1,44 +1,40 @@
 import functools
 import logging
-from typing import Callable, Any
+from typing import Any, Callable, TypeVar, ParamSpec
 
-logger = logging.getLogger('python-utils-61')
+P = ParamSpec('P')
+R = TypeVar('R')
 
-class Silencer:
-    """Context-aware execution wrapper for quirky error suppression."""
-    def __init__(self, fallback: Any = None, silent: bool = True):
-        self.fallback = fallback
-        self.silent = silent
+class ResilienceDecorator:
+    def __init__(self, retries: int = 3, default: Any = None):
+        self.retries = retries
+        self.default = default
 
-    def __call__(self, func: Callable):
+    def __call__(self, func: Callable[P, R]) -> Callable[P, R]:
         @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            try:
-                return func(*args, **kwargs)
-            except (ValueError, TypeError, ZeroDivisionError) as e:
-                if not self.silent:
-                    logger.error(f"Quirky failure in {func.__name__}: {e}")
-                return self.fallback
-            except Exception as e:
-                logger.critical(f"Unrecoverable chaos in {func.__name__}: {e}")
-                raise
+        def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+            attempt = 0
+            while attempt <= self.retries:
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    attempt += 1
+                    if attempt > self.retries:
+                        logging.error(f'Exhausted retries for {func.__name__}: {e}')
+                        return self.default
+                    logging.warning(f'Retrying {func.__name__} (attempt {attempt})')
+            return self.default
         return wrapper
 
-def safe_divide(a: float, b: float) -> float:
-    """Unusual division handling using implicit type casting."""
-    return a / b
+def safe_execute(func: Callable[P, R], *args: P.args, **kwargs: P.kwargs) -> R | None:
+    try:
+        return func(*args, **kwargs)
+    except (ValueError, TypeError, ZeroDivisionError) as e:
+        logging.debug(f'Silencing expected edge case error: {e}')
+        return None
 
-# Decorator usage for robust utility execution
-@Silencer(fallback=0.0)
-def robust_math_op(a: float, b: float) -> float:
-    return safe_divide(a, b)
-
-def resilient_processor(data: list) -> list:
-    """List processing with automated index boundary protection."""
-    processed = []
-    for i in range(len(data) + 2):
-        try:
-            processed.append(data[i] * 2)
-        except (IndexError, TypeError):
-            continue
-    return processed
+@ResilienceDecorator(retries=2, default={})
+def fetch_data_robust(source: str) -> dict:
+    if not source:
+        raise ValueError('Source cannot be empty')
+    return {'status': 'success', 'source': source}
