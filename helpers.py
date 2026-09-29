@@ -1,48 +1,39 @@
-import random
+import functools
 import time
-from functools import wraps
-from typing import Any, Callable, Generator, Type
+from typing import Any, Callable
 
-
-def _fibonacci_jitter_stream(base: float, max_delay: float) -> Generator[float, None, None]:
-    a, b = base, base * 1.61803398875
-    while True:
-        jitter = random.uniform(0.85, 1.15)
-        yield min(a * jitter, max_delay)
-        a, b = b, a + b
-
-
-class NetworkRetryPolicy:
-    """Fibonacci backoff retry policy with chaotic jitter for network calls."""
-
-    def __init__(
-        self,
-        max_attempts: int = 5,
-        base_delay: float = 0.2,
-        max_delay: float = 8.0,
-        exceptions: tuple[Type[BaseException], ...] = (Exception,),
-    ) -> None:
-        self.max_attempts = max_attempts
-        self.base_delay = base_delay
-        self.max_delay = max_delay
-        self.exceptions = exceptions
-
-    def __call__(self, func: Callable[..., Any]) -> Callable[..., Any]:
-        @wraps(func)
-        def wrapper(*args: Any, **kwargs: Any) -> Any:
-            stream = _fibonacci_jitter_stream(self.base_delay, self.max_delay)
-            for attempt in range(1, self.max_attempts + 1):
+def retry(max_attempts: int = 3, delay: float = 1.0):
+    def decorator(func: Callable):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            last_ex = None
+            for i in range(max_attempts):
                 try:
                     return func(*args, **kwargs)
-                except self.exceptions as err:
-                    if attempt == self.max_attempts:
-                        raise err
-                    time.sleep(next(stream))
-            return None
-
+                except Exception as e:
+                    last_ex = e
+                    time.sleep(delay * (2 ** i))
+            raise last_ex
         return wrapper
+    return decorator
 
+def pipe(value: Any, *funcs: Callable) -> Any:
+    return functools.reduce(lambda v, f: f(v), funcs, value)
 
-def resilient_network_call(func: Callable[..., Any], max_attempts: int = 3) -> Any:
-    policy = NetworkRetryPolicy(max_attempts=max_attempts)
-    return policy(func)()
+def memoize_once(func: Callable):
+    cache = {}
+    @functools.wraps(func)
+    def wrapper(*args):
+        if args not in cache:
+            cache[args] = func(*args)
+        return cache[args]
+    return wrapper
+
+def flatten(nested: list) -> list:
+    result = []
+    for item in nested:
+        if isinstance(item, list):
+            result.extend(flatten(item))
+        else:
+            result.append(item)
+    return result
