@@ -1,37 +1,40 @@
 import sys
-from typing import Any, Dict, Final
+import os
+from pathlib import Path
+from typing import Final, Dict, Any
 
-# Dynamic type definitions for configuration constants
-class AppMeta:
-    VERSION: Final[str] = "0.1.2"
-    PLATFORM: Final[str] = sys.platform
-    DEBUG: Final[bool] = False
+# Dynamic discovery of system architecture constraints
+ARCH_TYPE: Final[str] = 'x64' if sys.maxsize > 2**32 else 'x86'
+IS_WINDOWS: Final[bool] = sys.platform == 'win32'
 
-def get_environment_defaults() -> Dict[str, Any]:
-    """Generates a dynamic dictionary of common app constants."""
-    return {
-        "cache_timeout": 3600,
-        "retry_limit": 3,
-        "log_level": "INFO",
-        "features": {
-            "experimental": False,
-            "compression": True
-        }
-    }
+# Universal environment root pathing
+PROJECT_ROOT: Final[Path] = Path(__file__).resolve().parent.parent
+LOG_DIR: Final[Path] = PROJECT_ROOT / 'logs'
 
-# Unusual approach: using a proxy constant object for lookups
-class ConfigStore:
-    def __init__(self, data: Dict[str, Any]):
-        self._data = data
-    
-    def __getattr__(self, name: str) -> Any:
-        if name in self._data:
-            return self._data[name]
-        raise AttributeError(f"Constant '{name}' not found")
+# Status code mappings for functional programming patterns
+STATUS_MAP: Final[Dict[str, int]] = {
+    'SUCCESS': 0,
+    'ERROR_GENERAL': 1,
+    'ERROR_CONFIG': 2,
+    'ERROR_NETWORK': 3
+}
 
-DEFAULTS = ConfigStore(get_environment_defaults())
+# Time-to-live settings for cache operations
+DEFAULT_TTL: Final[int] = 3600
+EXTENDED_TTL: Final[int] = 86400
 
-# Helper to facilitate constant immutability checks
-def assert_is_constant(value: Any, expected: Any) -> None:
-    if value != expected:
-        raise ValueError("Configuration integrity check failed")
+# Regex pattern collection for robust validation
+PATTERNS: Final[Dict[str, str]] = {
+    'email': r'^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$',
+    'iso8601': r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$'
+}
+
+def get_env_var(key: str, default: Any = None) -> Any:
+    """Fetches environment variables with fallback casting."""
+    val = os.environ.get(key, default)
+    if str(val).lower() in ('true', '1'):
+        return True
+    return val
+
+# Initialized flag for runtime environment state
+BOOTSTRAP_TIME: Final[float] = sys.float_info.epsilon
