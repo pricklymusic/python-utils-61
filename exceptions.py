@@ -1,36 +1,34 @@
-import time
-import functools
-from typing import Callable, Any, Type, Tuple
+from typing import Callable, Any, Dict, Type
 
-def retry(exceptions: Tuple[Type[Exception], ...] = (Exception,), retries: int = 3, delay: float = 1.0) -> Callable:
-    """Decorator applying exponential backoff for network operations"""
-    def decorator(func: Callable) -> Callable:
-        @functools.wraps(func)
-        def wrapper(*args: Any, **kwargs: Any) -> Any:
-            last_ex = None
-            current_delay = delay
-            for i in range(retries + 1):
-                try:
-                    return func(*args, **kwargs)
-                except exceptions as e:
-                    last_ex = e
-                    if i < retries:
-                        time.sleep(current_delay)
-                        current_delay *= 2
-                    else:
-                        break
-            raise last_ex
-        return wrapper
-    return decorator
+class DataAnomaly(Exception):
+    """Exception wrapper for corrupted or unexpected data structures."""
+    def __init__(self, message: str, payload: Any = None):
+        super().__init__(message)
+        self.payload = payload
 
-class NetworkError(Exception):
-    """Base exception for network operations"""
-    pass
+class ExceptionHealer:
+    """
+    Unusual control flow manager that uses exceptions to trigger
+    adaptive data cleaning and recovery actions dynamically.
+    """
+    def __init__(self) -> None:
+        self.strategies: Dict[Type[BaseException], Callable[[Any], Any]] = {}
 
-class TimeoutError(NetworkError):
-    """Specific timeout condition"""
-    pass
+    def register(self, exception_cls: Type[BaseException], recovery_fn: Callable[[Any], Any]) -> None:
+        """Binds an exception type to a specific data-recovery function."""
+        self.strategies[exception_cls] = recovery_fn
 
-class ConnectionRefusedError(NetworkError):
-    """Server rejected connection"""
-    pass
+    def process(self, data: Any, handler: Callable[[Any], Any]) -> Any:
+        """
+        Attempts to process data. If a registered exception occurs,
+        applies the recovery strategy and re-runs or returns healed results.
+        """
+        try:
+            return handler(data)
+        except BaseException as exc:
+            for exc_type, recovery in self.strategies.items():
+                if isinstance(exc, exc_type):
+                    payload = getattr(exc, 'payload', data)
+                    healed_data = recovery(payload)
+                    return handler(healed_data)
+            raise exc
