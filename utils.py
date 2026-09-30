@@ -1,40 +1,35 @@
+import time
 import functools
-import logging
-from typing import Any, Callable, TypeVar, ParamSpec
+from typing import Callable, Any, Type
 
-P = ParamSpec('P')
-R = TypeVar('R')
-
-class ResilienceDecorator:
-    def __init__(self, retries: int = 3, default: Any = None):
-        self.retries = retries
-        self.default = default
-
-    def __call__(self, func: Callable[P, R]) -> Callable[P, R]:
+def retry_network_call(max_retries: int = 3, delay: float = 1.0, exceptions: tuple = (ConnectionError, TimeoutError)):
+    """Decorator applying exponential backoff for network operations."""
+    def decorator(func: Callable):
         @functools.wraps(func)
-        def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
-            attempt = 0
-            while attempt <= self.retries:
+        def wrapper(*args, **kwargs) -> Any:
+            last_ex = None
+            for attempt in range(max_retries + 1):
                 try:
                     return func(*args, **kwargs)
-                except Exception as e:
-                    attempt += 1
-                    if attempt > self.retries:
-                        logging.error(f'Exhausted retries for {func.__name__}: {e}')
-                        return self.default
-                    logging.warning(f'Retrying {func.__name__} (attempt {attempt})')
-            return self.default
+                except exceptions as e:
+                    last_ex = e
+                    if attempt < max_retries:
+                        sleep_time = delay * (2 ** attempt)
+                        time.sleep(sleep_time)
+                    else:
+                        break
+            raise last_ex
         return wrapper
+    return decorator
 
-def safe_execute(func: Callable[P, R], *args: P.args, **kwargs: P.kwargs) -> R | None:
-    try:
-        return func(*args, **kwargs)
-    except (ValueError, TypeError, ZeroDivisionError) as e:
-        logging.debug(f'Silencing expected edge case error: {e}')
-        return None
-
-@ResilienceDecorator(retries=2, default={})
-def fetch_data_robust(source: str) -> dict:
-    if not source:
-        raise ValueError('Source cannot be empty')
-    return {'status': 'success', 'source': source}
+def safe_request_execute(action: Callable, *args, **kwargs) -> Any:
+    """Functional alternative to retry decorator."""
+    retries = 0
+    while True:
+        try:
+            return action(*args, **kwargs)
+        except (ConnectionError, TimeoutError) as e:
+            if retries >= 3:
+                raise e
+            retries += 1
+            time.sleep(0.5 * retries)
