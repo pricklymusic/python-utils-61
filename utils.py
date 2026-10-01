@@ -1,35 +1,37 @@
-import time
 import functools
-from typing import Callable, Any, Type
+from typing import Any, Callable, Dict, List, Union
 
-def retry_network_call(max_retries: int = 3, delay: float = 1.0, exceptions: tuple = (ConnectionError, TimeoutError)):
-    """Decorator applying exponential backoff for network operations."""
-    def decorator(func: Callable):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs) -> Any:
-            last_ex = None
-            for attempt in range(max_retries + 1):
-                try:
-                    return func(*args, **kwargs)
-                except exceptions as e:
-                    last_ex = e
-                    if attempt < max_retries:
-                        sleep_time = delay * (2 ** attempt)
-                        time.sleep(sleep_time)
-                    else:
-                        break
-            raise last_ex
-        return wrapper
+def munge(data: Any, transformer: Callable = lambda x: x) -> Any:
+    if isinstance(data, dict):
+        return {str(k).lower(): munge(v, transformer) for k, v in data.items()}
+    elif isinstance(data, list):
+        return [munge(i, transformer) for i in data]
+    return transformer(data)
+
+def pipeline(*funcs: Callable) -> Callable:
+    def decorator(val: Any) -> Any:
+        return functools.reduce(lambda acc, f: f(acc), funcs, val)
     return decorator
 
-def safe_request_execute(action: Callable, *args, **kwargs) -> Any:
-    """Functional alternative to retry decorator."""
-    retries = 0
-    while True:
-        try:
-            return action(*args, **kwargs)
-        except (ConnectionError, TimeoutError) as e:
-            if retries >= 3:
-                raise e
-            retries += 1
-            time.sleep(0.5 * retries)
+class DataVault:
+    def __init__(self, initial: Dict[str, Any] = None):
+        self._storage = initial or {}
+
+    def __getitem__(self, key: str) -> Any:
+        return self._storage.get(key.lower())
+
+    def __setitem__(self, key: str, value: Any) -> None:
+        self._storage[key.lower()] = value
+
+    def flatten(self, prefix: str = '') -> Dict[str, Any]:
+        items = {}
+        for k, v in self._storage.items():
+            key = f"{prefix}{k}"
+            if isinstance(v, dict):
+                items.update(DataVault(v).flatten(f"{key}_"))
+            else:
+                items[key] = v
+        return items
+
+    def purge(self) -> None:
+        self._storage.clear()
