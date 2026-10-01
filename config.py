@@ -1,33 +1,31 @@
-import json
-import os
-from typing import Any, Dict
+from typing import Any, Dict, Optional, Union
+from os import environ
 
-class ConfigLoader:
-    def __init__(self, defaults: Dict[str, Any] = None):
-        self._data = defaults or {}
+class ConfigSchema:
+    """Dynamic configuration provider using environment variable mapping."""
 
-    def load(self, path: str) -> 'ConfigLoader':
-        if os.path.exists(path):
-            with open(path, 'r') as f:
-                try:
-                    user_data = json.load(f)
-                    self._data.update(user_data)
-                except json.JSONDecodeError:
-                    pass
-        return self
+    def __init__(self, prefix: str = "APP_") -> None:
+        self._prefix: str = prefix
+        self._store: Dict[str, Any] = {}
 
-    def __getattr__(self, name: str) -> Any:
-        return self._data.get(name)
+    def get(self, key: str, default: Optional[Any] = None) -> Any:
+        """Fetch configuration value with fallback mechanism."""
+        return self._store.get(key, environ.get(self._prefix + key.upper(), default))
 
-    def __getitem__(self, key: str) -> Any:
-        return self._data[key]
+    def set(self, key: str, value: Any) -> None:
+        """Update local store for runtime configuration overrides."""
+        self._store[key.lower()] = value
 
-    def __repr__(self) -> str:
-        return f"Config({self._data})"
+    def hydrate(self, defaults: Dict[str, Union[str, int, bool]]) -> None:
+        """Batch import defaults into the configuration store."""
+        for k, v in defaults.items():
+            if k not in self._store:
+                self._store[k] = v
 
-def get_config(path: str, defaults: Dict[str, Any] = None) -> ConfigLoader:
-    return ConfigLoader(defaults).load(path)
-
-# Usage:
-# cfg = get_config('settings.json', {'debug': False, 'port': 8080})
-# print(cfg.port)
+def load_runtime_config(overrides: Optional[Dict[str, Any]] = None) -> ConfigSchema:
+    """Factory function for creating pre-populated config instances."""
+    cfg = ConfigSchema()
+    if overrides:
+        for k, v in overrides.items():
+            cfg.set(k, v)
+    return cfg
