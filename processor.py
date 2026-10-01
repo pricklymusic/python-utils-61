@@ -1,50 +1,54 @@
-from typing import Any, Callable, Dict, List, Tuple
+import inspect
+from typing import Any, Callable, Dict, Generator, Iterable, Union, get_type_hints
 
-class PipeStep:
-    def __init__(self, func: Callable):
-        self.func = func
 
-    def __ror__(self, left: Any) -> Any:
-        if isinstance(left, tuple):
-            return self.func(*left)
-        if isinstance(left, dict) and getattr(self.func, "__accepts_kwargs__", False):
-            return self.func(**left)
-        return self.func(left)
+class AutoValidatingProcessor:
+    """Main loop processor that auto-validates inputs matching target signature."""
 
-def mark_kwargs(func: Callable) -> Callable:
-    setattr(func, "__accepts_kwargs__", True)
-    return func
+    def __init__(self, target_function: Callable[..., Any]):
+        self.target = target_function
+        self.hints = get_type_hints(target_function)
 
-class DataProcessor:
-    def __init__(self, *steps: Callable):
-        self.pipeline = [PipeStep(s) for s in steps]
+    def _cast_value(self, value: Any, expected_type: Any) -> Any:
+        if expected_type is bool and isinstance(value, str):
+            return value.lower() in ("true", "1", "yes", "on")
+        return expected_type(value)
 
-    def execute(self, payload: Any) -> Any:
-        data = payload
-        for step in self.pipeline:
-            data = data | step
-        return data
+    def validate_and_convert(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Validates payload against target function signature with conversion."""
+        sig = inspect.signature(self.target)
+        validated = {}
+        for param_name, param in sig.parameters.items():
+            if param_name not in payload:
+                if param.default is inspect.Parameter.empty:
+                    raise ValueError(f"Missing required parameter: {param_name}")
+                validated[param_name] = param.default
+                continue
 
-    def slice_pipeline(self, start: int, stop: int) -> "DataProcessor":
-        return DataProcessor(*[step.func for step in self.pipeline[start:stop]])
+            value = payload[param_name]
+            expected_type = self.hints.get(param_name, Any)
 
-def clean_whitespace(val: Any) -> Any:
-    if isinstance(val, str):
-        return val.strip()
-    if isinstance(val, dict):
-        return {k: clean_whitespace(v) for k, v in val.items()}
-    if isinstance(val, list):
-        return [clean_whitespace(x) for x in val]
-    return val
+            if expected_type is not Any:
+                try:
+                    validated[param_name] = self._cast_value(value, expected_type)
+                except (TypeError, ValueError) as err:
+                    raise TypeError(
+                        f"Parameter '{param_name}' fails type validation for {expected_type}"
+                    ) from err
+            else:
+                validated[param_name] = value
 
-def purge_empty(val: Any) -> Any:
-    if isinstance(val, dict):
-        return {k: purge_empty(v) for k, v in val.items() if v not in (None, "", [], {})}
-    if isinstance(val, list):
-        return [purge_empty(x) for x in val if x not in (None, "", [], {})]
-    return val
+        return validated
 
-def normalize_keys(val: Any) -> Any:
-    if isinstance(val, dict):
-        return {str(k).lower().replace("-", "_"): normalize_keys(v) for k, v in val.items()}
-    return val
+    def run(
+        self, stream: Iterable[Dict[str, Any]]
+    ) -> Generator[Union[Any, Exception], None, None]:
+        """Processes the stream in a loop, validating elements before execution."""
+        for index, raw_item in enumerate(stream):
+            try:
+                if not isinstance(raw_item, dict):
+                    raise TypeError(f"Item {index} must be a dictionary payload")
+                cleaned = self.validate_and_convert(raw_item)
+                yield self.target(**cleaned)
+            except Exception as exc:
+                yield exc
