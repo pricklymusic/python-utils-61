@@ -3,21 +3,17 @@ import os
 from typing import Any, Dict
 
 class ConfigLoader:
-    """A dict-like configuration loader with layered defaults."""
-    def __init__(self, defaults: Dict[str, Any]):
-        self._data = defaults
+    def __init__(self, defaults: Dict[str, Any] = None):
+        self._data = defaults or {}
 
-    def load_from_env(self, prefix: str = "APP_"):
-        for key, value in os.environ.items():
-            if key.startswith(prefix):
-                clean_key = key[len(prefix):].lower()
-                self._data[clean_key] = value
-        return self
-
-    def load_from_json(self, path: str):
+    def load(self, path: str) -> 'ConfigLoader':
         if os.path.exists(path):
             with open(path, 'r') as f:
-                self._data.update(json.load(f))
+                try:
+                    user_data = json.load(f)
+                    self._data.update(user_data)
+                except json.JSONDecodeError:
+                    pass
         return self
 
     def __getattr__(self, name: str) -> Any:
@@ -27,12 +23,11 @@ class ConfigLoader:
         return self._data[key]
 
     def __repr__(self) -> str:
-        return f"ConfigLoader({self._data})"
+        return f"Config({self._data})"
 
-def load_config(defaults: Dict[str, Any] = None) -> ConfigLoader:
-    return ConfigLoader(defaults or {})
+def get_config(path: str, defaults: Dict[str, Any] = None) -> ConfigLoader:
+    return ConfigLoader(defaults).load(path)
 
-if __name__ == "__main__":
-    cfg = load_config({"port": 8080, "debug": False})
-    cfg.load_from_json("settings.json")
-    print(f"Active config: {cfg._data}")
+# Usage:
+# cfg = get_config('settings.json', {'debug': False, 'port': 8080})
+# print(cfg.port)
