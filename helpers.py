@@ -1,39 +1,40 @@
-import functools
-import time
-from typing import Any, Callable
+from typing import Any, Callable, Dict, List, TypeVar, Union
 
-def retry(max_attempts: int = 3, delay: float = 1.0):
-    def decorator(func: Callable):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            last_ex = None
-            for i in range(max_attempts):
-                try:
-                    return func(*args, **kwargs)
-                except Exception as e:
-                    last_ex = e
-                    time.sleep(delay * (2 ** i))
-            raise last_ex
-        return wrapper
-    return decorator
+T = TypeVar('T')
 
-def pipe(value: Any, *funcs: Callable) -> Any:
-    return functools.reduce(lambda v, f: f(v), funcs, value)
+def compose(*funcs: Callable[[Any], Any]) -> Callable[[Any], Any]:
+    """Chain multiple functions together like a pipeline."""
+    def pipeline(data: Any) -> Any:
+        for func in funcs:
+            data = func(data)
+        return data
+    return pipeline
 
-def memoize_once(func: Callable):
-    cache = {}
-    @functools.wraps(func)
-    def wrapper(*args):
-        if args not in cache:
-            cache[args] = func(*args)
-        return cache[args]
-    return wrapper
-
-def flatten(nested: list) -> list:
-    result = []
-    for item in nested:
-        if isinstance(item, list):
-            result.extend(flatten(item))
+def partition(predicate: Callable[[T], bool], iterable: List[T]) -> tuple[List[T], List[T]]:
+    """Split items into two lists based on boolean filter."""
+    true_list, false_list = [], []
+    for item in iterable:
+        if predicate(item):
+            true_list.append(item)
         else:
-            result.append(item)
-    return result
+            false_list.append(item)
+    return true_list, false_list
+
+def deep_update(base: Dict[Any, Any], update: Dict[Any, Any]) -> Dict[Any, Any]:
+    """Recursively merge dictionaries with priority to update keys."""
+    for key, value in update.items():
+        if isinstance(value, dict) and key in base and isinstance(base[key], dict):
+            deep_update(base[key], value)
+        else:
+            base[key] = value
+    return base
+
+def memoize_once(func: Callable[..., T]) -> Callable[..., T]:
+    """A cache wrapper that stores only the last invocation."""
+    cache: Dict[str, Union[T, None]] = {'result': None, 'args': None}
+    def wrapper(*args: Any) -> T:
+        if cache['args'] != args:
+            cache['result'] = func(*args)
+            cache['args'] = args
+        return cache['result'] # type: ignore
+    return wrapper
