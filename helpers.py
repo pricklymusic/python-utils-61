@@ -1,40 +1,59 @@
-from typing import Any, Callable, Dict, List, TypeVar, Union
+import functools
+from typing import Any, Callable
 
-T = TypeVar('T')
+class flow:
+    """
+    A monadic wrapper for safe, fluid extraction and transformation
+    of nested data structures with fallbacks.
+    """
+    def __init__(self, value: Any):
+        self._value = value
 
-def compose(*funcs: Callable[[Any], Any]) -> Callable[[Any], Any]:
-    """Chain multiple functions together like a pipeline."""
-    def pipeline(data: Any) -> Any:
-        for func in funcs:
-            data = func(data)
-        return data
-    return pipeline
+    def __getitem__(self, key: Any) -> "flow":
+        if self._value is None:
+            return self
+        try:
+            return flow(self._value[key])
+        except (TypeError, KeyError, IndexError):
+            return flow(None)
 
-def partition(predicate: Callable[[T], bool], iterable: List[T]) -> tuple[List[T], List[T]]:
-    """Split items into two lists based on boolean filter."""
-    true_list, false_list = [], []
-    for item in iterable:
-        if predicate(item):
-            true_list.append(item)
+    def __getattr__(self, name: str) -> "flow":
+        if self._value is None:
+            return self
+        if isinstance(self._value, dict) and name in self._value:
+            return flow(self._value[name])
+        try:
+            return flow(getattr(self._value, name))
+        except AttributeError:
+            return flow(None)
+
+    def __or__(self, default: Any) -> Any:
+        """Provide fallback value: flow(data)['key'] | 'default'"""
+        return default if self._value is None else self._value
+
+    def __rshift__(self, func: Callable[[Any], Any]) -> "flow":
+        """Transform the inner value: flow(5) >> (lambda x: x * 2)"""
+        if self._value is None:
+            return self
+        try:
+            return flow(func(self._value))
+        except Exception:
+            return flow(None)
+
+    def resolve(self) -> Any:
+        """Extract the raw wrapped value directly."""
+        return self._value
+
+
+def pluck(data: Any, path: str, default: Any = None) -> Any:
+    """
+    Plucks deeply nested attributes or dict keys using a dot-separated string.
+    Example: pluck(user_dict, 'profile.address.zip', '00000')
+    """
+    current = flow(data)
+    for part in path.split("."):
+        if part.isdigit():
+            current = current[int(part)]
         else:
-            false_list.append(item)
-    return true_list, false_list
-
-def deep_update(base: Dict[Any, Any], update: Dict[Any, Any]) -> Dict[Any, Any]:
-    """Recursively merge dictionaries with priority to update keys."""
-    for key, value in update.items():
-        if isinstance(value, dict) and key in base and isinstance(base[key], dict):
-            deep_update(base[key], value)
-        else:
-            base[key] = value
-    return base
-
-def memoize_once(func: Callable[..., T]) -> Callable[..., T]:
-    """A cache wrapper that stores only the last invocation."""
-    cache: Dict[str, Union[T, None]] = {'result': None, 'args': None}
-    def wrapper(*args: Any) -> T:
-        if cache['args'] != args:
-            cache['result'] = func(*args)
-            cache['args'] = args
-        return cache['result'] # type: ignore
-    return wrapper
+            current = current[part]
+    return current | default
