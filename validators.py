@@ -1,57 +1,39 @@
-import math
-from typing import Any, Callable, Dict, Optional, Tuple, Type
+import functools
+import logging
 
+logger = logging.getLogger('python-utils-61')
 
-class SafeResult:
-    def __init__(self, value: Any, error: Optional[BaseException] = None):
-        self.value = value
-        self.error = error
-        self.is_ok = error is None
+class ValidationRegistry:
+    _validators = {}
 
-    def __bool__(self) -> bool:
-        return self.is_ok
+    @classmethod
+    def register(cls, func):
+        cls._validators[func.__name__] = func
+        return func
 
-    def __repr__(self) -> str:
-        status = "OK" if self.is_ok else f"ERR:{type(self.error).__name__}"
-        return f"SafeResult({status}, value={self.value!r})"
-
-
-def mitigate_edge_cases(
-    fallback: Any = None,
-    catches: Tuple[Type[BaseException], ...] = (Exception,),
-) -> Callable:
-    """Decorator intercepting unexpected edge cases and toxic input values."""
-
-    def decorator(func: Callable[..., Any]) -> Callable[..., SafeResult]:
-        def wrapper(*args: Any, **kwargs: Any) -> SafeResult:
+def robust_validate(default_fallback=False):
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
             try:
-                for arg in list(args) + list(kwargs.values()):
-                    if isinstance(arg, float) and (math.isnan(arg) or math.isinf(arg)):
-                        raise ArithmeticError(f"Non-finite float value encountered: {arg}")
-                result = func(*args, **kwargs)
-                return SafeResult(value=result)
-            except catches as err:
-                return SafeResult(value=fallback, error=err)
-
+                return func(*args, **kwargs)
+            except (ValueError, TypeError, AttributeError) as e:
+                logger.warning(f"Validation edge case in {func.__name__}: {e}")
+                return default_fallback
+            except Exception as e:
+                logger.error(f"Unexpected corruption in {func.__name__}: {type(e).__name__}")
+                raise
         return wrapper
-
     return decorator
 
+@ValidationRegistry.register
+@robust_validate(default_fallback=False)
+def validate_non_empty_string(value):
+    if not isinstance(value, str):
+        raise TypeError("Expected string input")
+    return len(value.strip()) > 0
 
-class RobustSchemaValidator:
-    def __init__(self, rules: Dict[str, Callable[[Any], bool]]):
-        self.rules = rules
-
-    def validate_field(self, field_name: str, value: Any) -> SafeResult:
-        if field_name not in self.rules:
-            return SafeResult(value=False, error=KeyError(f"No rule for field '{field_name}'"))
-
-        guarded_rule = mitigate_edge_cases(fallback=False)(self.rules[field_name])
-        return guarded_rule(value)
-
-    def validate_payload(self, payload: Dict[str, Any]) -> Dict[str, SafeResult]:
-        results = {}
-        for field_name, rule in self.rules.items():
-            val = payload.get(field_name)
-            results[field_name] = self.validate_field(field_name, val)
-        return results
+@ValidationRegistry.register
+@robust_validate(default_fallback=0)
+def safe_cast_int(value):
+    return int(value)
