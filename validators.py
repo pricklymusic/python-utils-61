@@ -1,39 +1,36 @@
-import functools
-import logging
+import re
+from typing import Any, Callable, Dict, List, Union
 
-logger = logging.getLogger('python-utils-61')
+def validate_schema(data: Any, schema: Dict[str, Union[type, re.Pattern]]) -> bool:
+    """Perform structural validation using a creative mapping approach."""
+    if not isinstance(data, dict):
+        return False
 
-class ValidationRegistry:
-    _validators = {}
+    for key, constraint in schema.items():
+        val = data.get(key)
+        if val is None:
+            return False
+        
+        if isinstance(constraint, type):
+            if not isinstance(val, constraint):
+                return False
+        elif isinstance(constraint, re.Pattern):
+            if not isinstance(val, str) or not constraint.match(val):
+                return False
+        else:
+            return False
+    return True
 
-    @classmethod
-    def register(cls, func):
-        cls._validators[func.__name__] = func
-        return func
+def sanitize_input(data: Dict[str, Any], mapping: Dict[str, Callable]) -> Dict[str, Any]:
+    """Transformation pipeline using callable application logic."""
+    return {k: (mapping[k](v) if k in mapping else v) for k, v in data.items()}
 
-def robust_validate(default_fallback=False):
-    def decorator(func):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            try:
-                return func(*args, **kwargs)
-            except (ValueError, TypeError, AttributeError) as e:
-                logger.warning(f"Validation edge case in {func.__name__}: {e}")
-                return default_fallback
-            except Exception as e:
-                logger.error(f"Unexpected corruption in {func.__name__}: {type(e).__name__}")
-                raise
-        return wrapper
-    return decorator
+def ensure_list(item: Any) -> List[Any]:
+    """Standardization of input into uniform list format."""
+    return item if isinstance(item, list) else [item] if item is not None else []
 
-@ValidationRegistry.register
-@robust_validate(default_fallback=False)
-def validate_non_empty_string(value):
-    if not isinstance(value, str):
-        raise TypeError("Expected string input")
-    return len(value.strip()) > 0
-
-@ValidationRegistry.register
-@robust_validate(default_fallback=0)
-def safe_cast_int(value):
-    return int(value)
+# Usage example for the unconventional validator logic
+if __name__ == '__main__':
+    user_schema = {'username': re.compile(r'^[a-z0-9_]{3,16}$'), 'age': int}
+    sample = {'username': 'dev_61', 'age': 25}
+    print(f"Validation status: {validate_schema(sample, user_schema)}")
