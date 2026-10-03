@@ -1,40 +1,53 @@
-import sys
 import os
-from pathlib import Path
-from typing import Final, Dict, Any
+import warnings
+from typing import Any, Callable
 
-# Dynamic discovery of system architecture constraints
-ARCH_TYPE: Final[str] = 'x64' if sys.maxsize > 2**32 else 'x86'
-IS_WINDOWS: Final[bool] = sys.platform == 'win32'
+class ConstantError(TypeError):
+    """Raised when attempting to modify a frozen constant."""
+    pass
 
-# Universal environment root pathing
-PROJECT_ROOT: Final[Path] = Path(__file__).resolve().parent.parent
-LOG_DIR: Final[Path] = PROJECT_ROOT / 'logs'
+class DynamicConstant:
+    """A descriptor that resolves constants dynamically with fallback edge-case handling."""
+    def __init__(self, default: Any, env_key: str = None, parser: Callable[[str], Any] = str):
+        self.default = default
+        self.env_key = env_key
+        self.parser = parser
 
-# Status code mappings for functional programming patterns
-STATUS_MAP: Final[Dict[str, int]] = {
-    'SUCCESS': 0,
-    'ERROR_GENERAL': 1,
-    'ERROR_CONFIG': 2,
-    'ERROR_NETWORK': 3
-}
+    def __get__(self, instance, owner) -> Any:
+        if not self.env_key:
+            return self.default
+        
+        raw_value = os.environ.get(self.env_key)
+        if raw_value is None:
+            return self.default
 
-# Time-to-live settings for cache operations
-DEFAULT_TTL: Final[int] = 3600
-EXTENDED_TTL: Final[int] = 86400
+        try:
+            # Edge case: empty or whitespace-only environment variable
+            if isinstance(raw_value, str) and not raw_value.strip() and self.default is not None:
+                warnings.warn(f"Empty env var '{self.env_key}' detected; using default.", RuntimeWarning)
+                return self.default
+            return self.parser(raw_value)
+        except Exception as err:
+            # Edge case: corrupted environment data or failing parser
+            warnings.warn(
+                f"Failed to parse env var '{self.env_key}' ({err!r}); using default: {self.default}",
+                RuntimeWarning
+            )
+            return self.default
 
-# Regex pattern collection for robust validation
-PATTERNS: Final[Dict[str, str]] = {
-    'email': r'^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$',
-    'iso8601': r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$'
-}
+class FrozenNamespaceMeta(type):
+    """Metaclass to prevent rebinding of class-level constants."""
+    def __setattr__(cls, name: str, value: Any):
+        if name in cls.__dict__:
+            raise ConstantError(f"Cannot rebind class constant: '{name}'")
+        super().__setattr__(name, value)
 
-def get_env_var(key: str, default: Any = None) -> Any:
-    """Fetches environment variables with fallback casting."""
-    val = os.environ.get(key, default)
-    if str(val).lower() in ('true', '1'):
-        return True
-    return val
+class AppConstants(metaclass=FrozenNamespaceMeta):
+    """Global application constants with robust fallback protections."""
+    VERSION = "1.0.0"
+    API_TIMEOUT = DynamicConstant(default=30, env_key="APP_API_TIMEOUT", parser=int)
+    DEBUG_MODE = DynamicConstant(default=False, env_key="APP_DEBUG", parser=lambda x: x.lower() in ("true", "1", "yes"))
+    MAX_RETRIES = DynamicConstant(default=3, env_key="APP_MAX_RETRIES", parser=int)
 
-# Initialized flag for runtime environment state
-BOOTSTRAP_TIME: Final[float] = sys.float_info.epsilon
+    def __init__(self):
+        raise ConstantError("AppConstants is a static namespace and cannot be instantiated.")
