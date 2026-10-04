@@ -1,44 +1,33 @@
+import json
 import os
-from contextlib import contextmanager
+from typing import Any, Dict
 
-class DynamicConfig:
-    """A flexible configuration loader with type-coerced env overrides and context nesting."""
-    def __init__(self, **defaults):
-        self.__dict__['_defaults'] = defaults
-        self.__dict__['_overrides'] = {}
+class ConfigLoader:
+    def __init__(self, defaults: Dict[str, Any], env_prefix: str = "APP_"):
+        self._data = defaults
+        self._env_prefix = env_prefix
 
-    def __getattr__(self, name):
-        if name in self._overrides:
-            return self._overrides[name]
-        
-        env_val = os.getenv(name.upper())
-        if env_val is not None:
-            default = self._defaults.get(name)
-            if default is not None:
+    def load_from_file(self, filepath: str) -> None:
+        if os.path.exists(filepath):
+            with open(filepath, 'r') as f:
+                self._data.update(json.load(f))
+        self._apply_env_overrides()
+
+    def _apply_env_overrides(self) -> None:
+        for key in self._data:
+            env_key = f"{self._env_prefix}{key.upper()}"
+            if env_key in os.environ:
+                val = os.environ[env_key]
                 try:
-                    if isinstance(default, bool):
-                        return env_val.lower() in ('true', '1', 'yes', 'on')
-                    return type(default)(env_val)
-                except (ValueError, TypeError):
-                    pass
-            return env_val
+                    self._data[key] = int(val)
+                except ValueError:
+                    self._data[key] = val
 
-        if name in self._defaults:
-            val = self._defaults[name]
-            return val() if callable(val) else val
-        
-        raise AttributeError(f"No configuration parameter named {name}")
+    def get(self, key: str, default: Any = None) -> Any:
+        return self._data.get(key, default)
 
-    def __setattr__(self, name, value):
-        self._overrides[name] = value
+    def __getitem__(self, key: str) -> Any:
+        return self._data[key]
 
-    @contextmanager
-    def context(self, **kwargs):
-        """Context manager to temporarily override settings."""
-        old_overrides = self._overrides.copy()
-        self._overrides.update(kwargs)
-        try:
-            yield self
-        finally:
-            self._overrides.clear()
-            self._overrides.update(old_overrides)
+    def __repr__(self) -> str:
+        return f"Config({dict(self._data)})"
