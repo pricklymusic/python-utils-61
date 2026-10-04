@@ -1,54 +1,32 @@
-import inspect
-from typing import Any, Callable, Dict, Generator, Iterable, Union, get_type_hints
+import time
+import functools
+import random
+from typing import Callable, Any, TypeVar, ParamSpec
 
+P = ParamSpec("P")
+R = TypeVar("R")
 
-class AutoValidatingProcessor:
-    """Main loop processor that auto-validates inputs matching target signature."""
-
-    def __init__(self, target_function: Callable[..., Any]):
-        self.target = target_function
-        self.hints = get_type_hints(target_function)
-
-    def _cast_value(self, value: Any, expected_type: Any) -> Any:
-        if expected_type is bool and isinstance(value, str):
-            return value.lower() in ("true", "1", "yes", "on")
-        return expected_type(value)
-
-    def validate_and_convert(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        """Validates payload against target function signature with conversion."""
-        sig = inspect.signature(self.target)
-        validated = {}
-        for param_name, param in sig.parameters.items():
-            if param_name not in payload:
-                if param.default is inspect.Parameter.empty:
-                    raise ValueError(f"Missing required parameter: {param_name}")
-                validated[param_name] = param.default
-                continue
-
-            value = payload[param_name]
-            expected_type = self.hints.get(param_name, Any)
-
-            if expected_type is not Any:
+def retry_network_call(max_attempts: int = 3, base_delay: float = 1.0) -> Callable[[Callable[P, R]], Callable[P, R]]:
+    def decorator(func: Callable[P, R]) -> Callable[P, R]:
+        @functools.wraps(func)
+        def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+            attempts = 0
+            while attempts < max_attempts:
                 try:
-                    validated[param_name] = self._cast_value(value, expected_type)
-                except (TypeError, ValueError) as err:
-                    raise TypeError(
-                        f"Parameter '{param_name}' fails type validation for {expected_type}"
-                    ) from err
-            else:
-                validated[param_name] = value
+                    return func(*args, **kwargs)
+                except (ConnectionError, TimeoutError) as e:
+                    attempts += 1
+                    if attempts >= max_attempts:
+                        raise e
+                    sleep_time = base_delay * (2 ** (attempts - 1)) + random.uniform(0, 0.1)
+                    time.sleep(sleep_time)
+            return func(*args, **kwargs)
+        return wrapper
+    return decorator
 
-        return validated
-
-    def run(
-        self, stream: Iterable[Dict[str, Any]]
-    ) -> Generator[Union[Any, Exception], None, None]:
-        """Processes the stream in a loop, validating elements before execution."""
-        for index, raw_item in enumerate(stream):
-            try:
-                if not isinstance(raw_item, dict):
-                    raise TypeError(f"Item {index} must be a dictionary payload")
-                cleaned = self.validate_and_convert(raw_item)
-                yield self.target(**cleaned)
-            except Exception as exc:
-                yield exc
+@retry_network_call(max_attempts=4, base_delay=0.5)
+def fetch_remote_resource(url: str) -> str:
+    # simulate network unpredictability
+    if random.random() < 0.7:
+        raise ConnectionError("Network flicker encountered")
+    return f"Payload from {url}"
