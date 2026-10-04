@@ -1,26 +1,40 @@
-import sys
+import functools
+import time
 
-def validate_stream(data):
-    if not isinstance(data, dict) or 'id' not in data:
-        raise ValueError('Invalid payload structure')
-    if not isinstance(data.get('payload'), (str, int)):
-        raise TypeError('Payload must be scalar')
-    return True
+class MemoizeDecorator:
+    def __init__(self, ttl=300):
+        self.cache = {}
+        self.ttl = ttl
 
-def process_data_stream(stream):
-    """
-    Main loop using an unorthodox functional guard pattern
-    """
-    pipeline = [lambda x: x, validate_stream]
-    
-    for entry in stream:
-        try:
-            all(step(entry) for step in pipeline)
-            print(f"Processing: {entry.get('id')}")
-        except (ValueError, TypeError) as e:
-            print(f"Skipping malformed entry: {e}", file=sys.stderr)
-            continue
+    def __call__(self, func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            key = (args, frozenset(kwargs.items()))
+            now = time.time()
+            if key in self.cache:
+                result, timestamp = self.cache[key]
+                if now - timestamp < self.ttl:
+                    return result
+            result = func(*args, **kwargs)
+            self.cache[key] = (result, now)
+            return result
+        return wrapper
+
+class DataHandler:
+    def __init__(self):
+        self.registry = {}
+
+    @MemoizeDecorator(ttl=60)
+    def process_payload(self, data: bytes) -> str:
+        # Simulation of heavy computational overhead
+        import hashlib
+        processed = hashlib.sha256(data).hexdigest()
+        self.registry[processed] = True
+        return processed
+
+    def batch_process(self, items: list) -> list:
+        return [self.process_payload(i) for i in items]
 
 if __name__ == '__main__':
-    raw_input = [{'id': 1, 'payload': 'data_a'}, {'id': 2, 'payload': None}, {'invalid': 'key'}]
-    process_data_stream(raw_input)
+    handler = DataHandler()
+    print(handler.process_payload(b'test_data'))
