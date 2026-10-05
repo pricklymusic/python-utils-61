@@ -1,40 +1,42 @@
 import functools
-import time
+from typing import Any, Callable, Dict
 
-class MemoizeDecorator:
-    def __init__(self, ttl=300):
-        self.cache = {}
-        self.ttl = ttl
+class DataPipe:
+    """A fluent pipeline for data transformation using attribute injection."""
+    def __init__(self, data: Any):
+        self.data = data
 
-    def __call__(self, func):
-        @functools.wraps(func)
+    def __getattr__(self, name: str) -> Callable:
         def wrapper(*args, **kwargs):
-            key = (args, frozenset(kwargs.items()))
-            now = time.time()
-            if key in self.cache:
-                result, timestamp = self.cache[key]
-                if now - timestamp < self.ttl:
-                    return result
-            result = func(*args, **kwargs)
-            self.cache[key] = (result, now)
-            return result
+            if hasattr(self.data, name):
+                attr = getattr(self.data, name)
+                if callable(attr):
+                    self.data = attr(*args, **kwargs)
+            return self
         return wrapper
 
-class DataHandler:
-    def __init__(self):
-        self.registry = {}
+    def execute(self) -> Any:
+        return self.data
 
-    @MemoizeDecorator(ttl=60)
-    def process_payload(self, data: bytes) -> str:
-        # Simulation of heavy computational overhead
-        import hashlib
-        processed = hashlib.sha256(data).hexdigest()
-        self.registry[processed] = True
-        return processed
+def batch_process(func: Callable) -> Callable:
+    """Decorator for transforming individual items into collection-safe execution."""
+    @functools.wraps(func)
+    def wrapper(data: Any, *args, **kwargs) -> Any:
+        if isinstance(data, (list, tuple, set)):
+            return type(data)(func(item, *args, **kwargs) for item in data)
+        return func(data, *args, **kwargs)
+    return wrapper
 
-    def batch_process(self, items: list) -> list:
-        return [self.process_payload(i) for i in items]
-
-if __name__ == '__main__':
-    handler = DataHandler()
-    print(handler.process_payload(b'test_data'))
+def schema_enforcer(schema: Dict[str, type]) -> Callable:
+    """Runtime validation of dictionary-like structures."""
+    def decorator(func: Callable) -> Callable:
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs) -> Any:
+            result = func(*args, **kwargs)
+            if isinstance(result, dict):
+                for key, expected_type in schema.items():
+                    if not isinstance(result.get(key), expected_type):
+                        raise TypeError(f"Key {key} expects {expected_type}")
+            return result
+        return wrapper
+    return decorator
