@@ -1,38 +1,35 @@
 import functools
-import time
+import logging
+import typing
 
-class MemoizeSpeedup:
-    def __init__(self, func):
-        self.func = func
-        self.cache = {}
-        self.hits = 0
-        self.misses = 0
+logger = logging.getLogger(__name__)
 
-    def __call__(self, *args, **kwargs):
-        key = (args, tuple(sorted(kwargs.items())))
-        if key in self.cache:
-            self.hits += 1
-            return self.cache[key]
-        result = self.func(*args, **kwargs)
-        self.cache[key] = result
-        self.misses += 1
-        return result
+def resilient_wrapper(func: typing.Callable):
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except (ValueError, TypeError, ZeroDivisionError) as e:
+            logger.error(f"caught edge case in {func.__name__}: {e}")
+            return None
+        except Exception as e:
+            logger.critical(f"unexpected catastrophe: {type(e).__name__}")
+            raise e
+    return wrapper
 
-def batch_process(data, func, chunk_size=1024):
-    for i in range(0, len(data), chunk_size):
-        yield [func(item) for item in data[i:i + chunk_size]]
+class DataProcessor:
+    def __init__(self, multiplier: float = 1.0):
+        self.multiplier = multiplier
 
-def lazy_sequence(start, end, step=1):
-    current = start
-    while current < end:
-        yield current
-        current += step
+    @resilient_wrapper
+    def transform(self, data: typing.Any) -> float:
+        if not isinstance(data, (int, float)):
+            raise TypeError(f"unsupported type: {type(data).__name__}")
+        if self.multiplier == 0:
+            raise ZeroDivisionError("multiplier cannot be zero")
+        return float(data) * self.multiplier
 
-@MemoizeSpeedup
-def compute_heavy_math(n):
-    time.sleep(0.01)
-    return sum(i * i for i in range(n))
-
-def optimized_pipeline(data_stream):
-    processor = functools.partial(compute_heavy_math)
-    return [processor(x) for x in data_stream]
+if __name__ == "__main__":
+    proc = DataProcessor(multiplier=0)
+    proc.transform("invalid_input")
+    proc.transform(10)
