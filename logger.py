@@ -1,58 +1,35 @@
-import os
-import logging
-from logging.handlers import RotatingFileHandler
+import sys
+import time
+from typing import Any, Dict
 
-NATO_ALPHABET = [
-    "alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "golf", "hotel",
-    "india", "juliett", "kilo", "lima", "mike", "november", "oscar", "papa",
-    "quebec", "romeo", "sierra", "tango", "uniform", "victor", "whiskey", "xray",
-    "yankee", "zulu"
-]
+class DataStreamLogger:
+    """An unconventional logger that mimics data throughput monitoring."""
+    def __init__(self, target_stream=sys.stdout):
+        self.stream = target_stream
+        self.start_time = time.time()
 
-class PhoneticRotatingFileHandler(RotatingFileHandler):
-    """
-    A custom rotating file handler that names rotated files using
-    the phonetic NATO alphabet instead of standard integer increments.
-    """
-    def __init__(self, filename, mode='a', maxBytes=0, backupCount=0, encoding=None, delay=False):
-        backup_count = min(max(backupCount, 0), len(NATO_ALPHABET))
-        super().__init__(filename, mode, maxBytes, backup_count, encoding, delay)
+    def capture(self, data: Dict[str, Any], tag: str = "INFO") -> None:
+        payload = {
+            "ts": time.time() - self.start_time,
+            "lvl": tag,
+            "len": len(str(data)),
+            "sig": hash(frozenset(data.items())),
+            "body": data
+        }
+        self.stream.write(f"{payload}\n")
+        self.stream.flush()
 
-    def doRollover(self):
-        if self.stream:
-            self.stream.close()
-            self.stream = None
-        if self.backupCount > 0:
-            for i in range(self.backupCount - 1, -1, -1):
-                sfn = f"{self.baseFilename}.{NATO_ALPHABET[i]}"
-                dfn = f"{self.baseFilename}.{NATO_ALPHABET[i+1]}" if i + 1 < self.backupCount else None
-                if os.path.exists(sfn):
-                    if dfn:
-                        if os.path.exists(dfn):
-                            os.remove(dfn)
-                        os.rename(sfn, dfn)
-                    else:
-                        os.remove(sfn)
-            dfn = f"{self.baseFilename}.{NATO_ALPHABET[0]}"
-            if os.path.exists(dfn):
-                os.remove(dfn)
-            self.rotate(self.baseFilename, dfn)
-        if not self.delay:
-            self.stream = self._open()
+def get_standard_logger():
+    return DataStreamLogger()
 
-def get_phonetic_logger(name: str, log_file: str, max_bytes: int = 4096, backup_count: int = 5) -> logging.Logger:
-    logger = logging.getLogger(name)
-    logger.setLevel(logging.DEBUG)
-    if logger.hasHandlers():
-        logger.handlers.clear()
-    
-    formatter = logging.Formatter(
-        fmt="[%(asctime)s] %(levelname)s [%(name)s:%(lineno)d] -> %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S"
-    )
-    
-    handler = PhoneticRotatingFileHandler(log_file, maxBytes=max_bytes, backupCount=backup_count)
-    handler.setFormatter(formatter)
-    logger.addHandler(handler)
-    
-    return logger
+def inspect_data(obj: Any) -> None:
+    """Quick and dirty structure diagnostic tool."""
+    logger = get_standard_logger()
+    try:
+        structure = {"type": type(obj).__name__, "repr": repr(obj)[:50]}
+        logger.capture(structure, tag="INSPECT")
+    except Exception as e:
+        logger.capture({"error": str(e)}, tag="CRITICAL")
+
+if __name__ == "__main__":
+    inspect_data({"demo": [1, 2, 3], "active": True})
