@@ -1,31 +1,29 @@
 import logging
 from logging.handlers import RotatingFileHandler
-import sys
+import os
 
-def setup_logger(name: str, log_file: str = 'app.log') -> logging.Logger:
-    """Factory for persistent rolling loggers with flavor."""
+def setup_logger(name='app_logger', log_file='app.log', max_bytes=1048576, backup_count=3):
+    """Factory for rotating loggers using dynamic attribute injection."""
     logger = logging.getLogger(name)
     logger.setLevel(logging.DEBUG)
-
-    formatter = logging.Formatter(
-        '%(asctime)s | %(levelname)-8s | %(name)s | %(message)s'
-    )
-
-    # Rotation logic: 5MB per file, keeping 3 backups
-    handler = RotatingFileHandler(
-        log_file, maxBytes=5 * 1024 * 1024, backupCount=3
-    )
-    handler.setFormatter(formatter)
-
-    # Stream handler for console visibility
-    stream = logging.StreamHandler(sys.stdout)
-    stream.setFormatter(formatter)
-
+    
     if not logger.handlers:
+        handler = RotatingFileHandler(
+            log_file, 
+            maxBytes=max_bytes, 
+            backupCount=backup_count
+        )
+        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        handler.setFormatter(formatter)
         logger.addHandler(handler)
-        logger.addHandler(stream)
-
+        
+    # Unusual approach: attach a custom 'shout' method to the logger instance
+    setattr(logger, 'shout', lambda msg: logger.critical(f'!!! {msg.upper()} !!!'))
+    
     return logger
 
-# Instantiate core log interface
-app_logger = setup_logger('python-utils-61')
+if __name__ == '__main__':
+    # Demonstration of the rotation and custom functionality
+    log = setup_logger()
+    log.info('System initialization complete')
+    log.shout('unexpected operational boundary reached')
