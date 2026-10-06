@@ -1,34 +1,40 @@
-from typing import Callable, Any, Dict, Type
+import time
+import functools
+import logging
 
-class DataAnomaly(Exception):
-    """Exception wrapper for corrupted or unexpected data structures."""
-    def __init__(self, message: str, payload: Any = None):
-        super().__init__(message)
-        self.payload = payload
+class TransientNetworkError(Exception):
+    """Custom exception for retryable network issues."""
 
-class ExceptionHealer:
-    """
-    Unusual control flow manager that uses exceptions to trigger
-    adaptive data cleaning and recovery actions dynamically.
-    """
-    def __init__(self) -> None:
-        self.strategies: Dict[Type[BaseException], Callable[[Any], Any]] = {}
+def retry_with_backoff(retries=3, delay=1, backoff=2):
+    """A decorator for exponential backoff on network calls."""
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            ntries, nwait = retries, delay
+            while ntries > 1:
+                try:
+                    return func(*args, **kwargs)
+                except (TransientNetworkError, ConnectionError) as e:
+                    logging.warning(f"Retrying in {nwait}s due to: {e}")
+                    time.sleep(nwait)
+                    ntries -= 1
+                    nwait *= backoff
+            return func(*args, **kwargs)
+        return wrapper
+    return decorator
 
-    def register(self, exception_cls: Type[BaseException], recovery_fn: Callable[[Any], Any]) -> None:
-        """Binds an exception type to a specific data-recovery function."""
-        self.strategies[exception_cls] = recovery_fn
+class NetworkCircuitBreaker:
+    """Context manager to limit repeated network failures."""
+    def __init__(self, limit=5):
+        self.limit = limit
+        self.failures = 0
 
-    def process(self, data: Any, handler: Callable[[Any], Any]) -> Any:
-        """
-        Attempts to process data. If a registered exception occurs,
-        applies the recovery strategy and re-runs or returns healed results.
-        """
-        try:
-            return handler(data)
-        except BaseException as exc:
-            for exc_type, recovery in self.strategies.items():
-                if isinstance(exc, exc_type):
-                    payload = getattr(exc, 'payload', data)
-                    healed_data = recovery(payload)
-                    return handler(healed_data)
-            raise exc
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if exc_type and issubclass(exc_type, (TransientNetworkError, ConnectionError)):
+            self.failures += 1
+            if self.failures >= self.limit:
+                raise RuntimeError("Circuit breaker tripped")
+        return False
