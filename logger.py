@@ -1,35 +1,31 @@
+import logging
+from logging.handlers import RotatingFileHandler
 import sys
-import time
-from typing import Any, Dict
 
-class DataStreamLogger:
-    """An unconventional logger that mimics data throughput monitoring."""
-    def __init__(self, target_stream=sys.stdout):
-        self.stream = target_stream
-        self.start_time = time.time()
+def setup_logger(name: str, log_file: str = 'app.log') -> logging.Logger:
+    """Factory for persistent rolling loggers with flavor."""
+    logger = logging.getLogger(name)
+    logger.setLevel(logging.DEBUG)
 
-    def capture(self, data: Dict[str, Any], tag: str = "INFO") -> None:
-        payload = {
-            "ts": time.time() - self.start_time,
-            "lvl": tag,
-            "len": len(str(data)),
-            "sig": hash(frozenset(data.items())),
-            "body": data
-        }
-        self.stream.write(f"{payload}\n")
-        self.stream.flush()
+    formatter = logging.Formatter(
+        '%(asctime)s | %(levelname)-8s | %(name)s | %(message)s'
+    )
 
-def get_standard_logger():
-    return DataStreamLogger()
+    # Rotation logic: 5MB per file, keeping 3 backups
+    handler = RotatingFileHandler(
+        log_file, maxBytes=5 * 1024 * 1024, backupCount=3
+    )
+    handler.setFormatter(formatter)
 
-def inspect_data(obj: Any) -> None:
-    """Quick and dirty structure diagnostic tool."""
-    logger = get_standard_logger()
-    try:
-        structure = {"type": type(obj).__name__, "repr": repr(obj)[:50]}
-        logger.capture(structure, tag="INSPECT")
-    except Exception as e:
-        logger.capture({"error": str(e)}, tag="CRITICAL")
+    # Stream handler for console visibility
+    stream = logging.StreamHandler(sys.stdout)
+    stream.setFormatter(formatter)
 
-if __name__ == "__main__":
-    inspect_data({"demo": [1, 2, 3], "active": True})
+    if not logger.handlers:
+        logger.addHandler(handler)
+        logger.addHandler(stream)
+
+    return logger
+
+# Instantiate core log interface
+app_logger = setup_logger('python-utils-61')
