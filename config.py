@@ -1,35 +1,33 @@
 import os
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict
 
-class ConfigMapper:
-    """Dynamic dictionary proxy with recursive type enforcement."""
+class ConfigRegistry:
+    """Dynamic configuration container with dictionary-like access."""
+    def __init__(self, defaults: Dict[str, Any] = None):
+        self._data = defaults or {}
 
-    def __init__(self, settings: Optional[Dict[str, Any]] = None) -> None:
-        self._data: Dict[str, Any] = settings or {}
-
-    def get(self, key: str, default: Any = None) -> Any:
-        """Retrieve value with an optional fallback mechanism."""
-        return self._data.get(key, default)
+    def __getattr__(self, name: str) -> Any:
+        return self._data.get(name)
 
     def load_env(self, prefix: str = "APP_") -> None:
-        """Ingest system environment variables into configuration storage."""
         for key, value in os.environ.items():
             if key.startswith(prefix):
                 clean_key = key[len(prefix):].lower()
-                self._data[clean_key] = self._cast_type(value)
+                self._data[clean_key] = value
 
-    def _cast_type(self, value: str) -> Union[int, float, bool, str]:
-        """Attempt conversion of string env vars to native types."""
-        if value.lower() in ('true', 'yes'): return True
-        if value.lower() in ('false', 'no'): return False
-        try:
-            if '.' in value: return float(value)
-            return int(value)
-        except ValueError:
-            return value
-
-    def __getitem__(self, key: str) -> Any:
-        return self._data[key]
+    def update(self, mapping: Dict[str, Any]) -> None:
+        self._data.update(mapping)
 
     def __repr__(self) -> str:
-        return f"ConfigMapper(keys={list(self._data.keys())})"
+        return f"ConfigRegistry({list(self._data.keys())})"
+
+def get_app_config() -> ConfigRegistry:
+    config = ConfigRegistry({
+        "debug": False,
+        "version": "1.0.0",
+        "timeout": 30
+    })
+    config.load_env()
+    return config
+
+settings = get_app_config()
