@@ -1,40 +1,32 @@
-import time
 import functools
-import logging
 
-class TransientNetworkError(Exception):
-    """Custom exception for retryable network issues."""
+class OptimizationError(Exception):
+    """Base exception for resource bottlenecks."""
+    pass
 
-def retry_with_backoff(retries=3, delay=1, backoff=2):
-    """A decorator for exponential backoff on network calls."""
-    def decorator(func):
+class MemoizationCache:
+    """O(1) look-up registry for hot-path function results."""
+    _registry = {}
+
+    def __call__(self, func):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            ntries, nwait = retries, delay
-            while ntries > 1:
-                try:
-                    return func(*args, **kwargs)
-                except (TransientNetworkError, ConnectionError) as e:
-                    logging.warning(f"Retrying in {nwait}s due to: {e}")
-                    time.sleep(nwait)
-                    ntries -= 1
-                    nwait *= backoff
-            return func(*args, **kwargs)
+            key = (func.__name__, args, frozenset(kwargs.items()))
+            if key not in self._registry:
+                self._registry[key] = func(*args, **kwargs)
+            return self._registry[key]
         return wrapper
-    return decorator
 
-class NetworkCircuitBreaker:
-    """Context manager to limit repeated network failures."""
-    def __init__(self, limit=5):
-        self.limit = limit
-        self.failures = 0
+@MemoizationCache()
+def compute_heavy_metric(data_points: tuple) -> float:
+    """Expensive calculation with memoization optimization."""
+    return sum(x ** 2.5 for x in data_points) / len(data_points)
 
-    def __enter__(self):
-        return self
+def validation_gate(condition: bool):
+    """Inline check for performance-critical path segments."""
+    if not condition:
+        raise OptimizationError("Execution threshold exceeded")
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        if exc_type and issubclass(exc_type, (TransientNetworkError, ConnectionError)):
-            self.failures += 1
-            if self.failures >= self.limit:
-                raise RuntimeError("Circuit breaker tripped")
-        return False
+def cache_purge():
+    """Manual garbage collection of memoized results."""
+    MemoizationCache._registry.clear()
