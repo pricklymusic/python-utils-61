@@ -1,42 +1,45 @@
 import functools
-from typing import Any, Callable, Dict
+import time
+import logging
+from typing import Callable, Any
 
-class DataPipe:
-    """A fluent pipeline for data transformation using attribute injection."""
-    def __init__(self, data: Any):
-        self.data = data
-
-    def __getattr__(self, name: str) -> Callable:
-        def wrapper(*args, **kwargs):
-            if hasattr(self.data, name):
-                attr = getattr(self.data, name)
-                if callable(attr):
-                    self.data = attr(*args, **kwargs)
-            return self
-        return wrapper
-
-    def execute(self) -> Any:
-        return self.data
-
-def batch_process(func: Callable) -> Callable:
-    """Decorator for transforming individual items into collection-safe execution."""
-    @functools.wraps(func)
-    def wrapper(data: Any, *args, **kwargs) -> Any:
-        if isinstance(data, (list, tuple, set)):
-            return type(data)(func(item, *args, **kwargs) for item in data)
-        return func(data, *args, **kwargs)
-    return wrapper
-
-def schema_enforcer(schema: Dict[str, type]) -> Callable:
-    """Runtime validation of dictionary-like structures."""
-    def decorator(func: Callable) -> Callable:
+def retry_on_failure(retries: int = 3, delay: float = 0.5):
+    def decorator(func: Callable):
         @functools.wraps(func)
-        def wrapper(*args, **kwargs) -> Any:
-            result = func(*args, **kwargs)
-            if isinstance(result, dict):
-                for key, expected_type in schema.items():
-                    if not isinstance(result.get(key), expected_type):
-                        raise TypeError(f"Key {key} expects {expected_type}")
+        def wrapper(*args, **kwargs):
+            last_ex = None
+            for i in range(retries):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    last_ex = e
+                    time.sleep(delay * (2 ** i))
+            raise last_ex
+        return wrapper
+    return decorator
+
+def batch_process(iterable: list, size: int):
+    for i in range(0, len(iterable), size):
+        yield iterable[i:i + size]
+
+def dict_deep_merge(base: dict, update: dict) -> dict:
+    for key, value in update.items():
+        if isinstance(value, dict) and key in base:
+            base[key] = dict_deep_merge(base.get(key, {}), value)
+        else:
+            base[key] = value
+    return base
+
+def memoize_with_expiry(ttl: int):
+    cache = {}
+    def decorator(func: Callable):
+        @functools.wraps(func)
+        def wrapper(*args):
+            now = time.time()
+            if args in cache and (now - cache[args][1]) < ttl:
+                return cache[args][0]
+            result = func(*args)
+            cache[args] = (result, now)
             return result
         return wrapper
     return decorator
