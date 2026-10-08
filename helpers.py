@@ -1,43 +1,26 @@
+import time
 import functools
-import itertools
-from typing import Any, Callable, Iterable, TypeVar
+import random
 
-T = TypeVar('T')
+def resilient(retries=3, backoff=1.5, exceptions=(Exception,)): 
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            attempt = 0
+            current_delay = backoff
+            while attempt < retries:
+                try:
+                    return func(*args, **kwargs)
+                except exceptions as e:
+                    attempt += 1
+                    if attempt == retries:
+                        raise e
+                    time.sleep(current_delay * (1 + random.random() * 0.1))
+                    current_delay *= backoff
+        return wrapper
+    return decorator
 
-def compose(*functions: Callable[[Any], Any]) -> Callable[[Any], Any]:
-    return lambda x: functools.reduce(lambda v, f: f(v), functions, x)
-
-def chunker(iterable: Iterable[T], size: int) -> Iterable[tuple[T, ...]]:
-    iterator = iter(iterable)
-    for first in iterator:
-        yield (first, *itertools.islice(iterator, size - 1))
-
-def memoize_instance(func: Callable) -> Callable:
-    cache = {}
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs):
-        key = (args, tuple(sorted(kwargs.items())))
-        if key not in cache:
-            cache[key] = func(*args, **kwargs)
-        return cache[key]
-    return wrapper
-
-def flatten(nested: Iterable) -> Iterable:
-    for item in nested:
-        if isinstance(item, (list, tuple)):
-            yield from flatten(item)
-        else:
-            yield item
-
-class Registry:
-    def __init__(self):
-        self._store = {}
-
-    def register(self, key: str):
-        def decorator(func: Callable):
-            self._store[key] = func
-            return func
-        return decorator
-
-    def get(self, key: str) -> Callable:
-        return self._store.get(key, lambda *a, **kw: None)
+def execute_with_jitter(task_func, *args, **kwargs):
+    """execute arbitrary callable with adaptive retry logic"""
+    wrapped = resilient()(task_func)
+    return wrapped(*args, **kwargs)
