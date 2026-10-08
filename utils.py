@@ -1,37 +1,37 @@
 import functools
-from typing import Any, Callable, Dict, List, Union
+import logging
+from typing import Callable, Any
 
-def munge(data: Any, transformer: Callable = lambda x: x) -> Any:
-    if isinstance(data, dict):
-        return {str(k).lower(): munge(v, transformer) for k, v in data.items()}
-    elif isinstance(data, list):
-        return [munge(i, transformer) for i in data]
-    return transformer(data)
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger('python-utils-61')
 
-def pipeline(*funcs: Callable) -> Callable:
-    def decorator(val: Any) -> Any:
-        return functools.reduce(lambda acc, f: f(acc), funcs, val)
+class Chainable:
+    def __init__(self, value: Any):
+        self._v = value
+
+    def pipe(self, func: Callable[[Any], Any]) -> 'Chainable':
+        return Chainable(func(self._v))
+
+    def result(self) -> Any:
+        return self._v
+
+def retry_on_failure(retries: int = 3):
+    def decorator(func: Callable):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            last_ex = None
+            for i in range(retries):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    last_ex = e
+                    logger.warning(f'attempt {i+1} failed: {e}')
+            raise last_ex
+        return wrapper
     return decorator
 
-class DataVault:
-    def __init__(self, initial: Dict[str, Any] = None):
-        self._storage = initial or {}
+def sanitize_dict(data: dict) -> dict:
+    return {str(k).strip(): (v.strip() if isinstance(v, str) else v) for k, v in data.items()}
 
-    def __getitem__(self, key: str) -> Any:
-        return self._storage.get(key.lower())
-
-    def __setitem__(self, key: str, value: Any) -> None:
-        self._storage[key.lower()] = value
-
-    def flatten(self, prefix: str = '') -> Dict[str, Any]:
-        items = {}
-        for k, v in self._storage.items():
-            key = f"{prefix}{k}"
-            if isinstance(v, dict):
-                items.update(DataVault(v).flatten(f"{key}_"))
-            else:
-                items[key] = v
-        return items
-
-    def purge(self) -> None:
-        self._storage.clear()
+def compose(*functions):
+    return lambda x: functools.reduce(lambda v, f: f(v), functions, x)
