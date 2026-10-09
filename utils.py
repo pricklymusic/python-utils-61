@@ -1,37 +1,42 @@
 import functools
-import logging
-from typing import Callable, Any
+import itertools
+import operator
+from typing import Any, Callable, Iterable, List, TypeVar
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger('python-utils-61')
+T = TypeVar('T')
 
-class Chainable:
-    def __init__(self, value: Any):
-        self._v = value
+def compose(*functions: Callable[[Any], Any]) -> Callable[[Any], Any]:
+    """Chain a sequence of functions into a single pipeline."""
+    return lambda x: functools.reduce(lambda v, f: f(v), functions, x)
 
-    def pipe(self, func: Callable[[Any], Any]) -> 'Chainable':
-        return Chainable(func(self._v))
+def flatten(items: Iterable[Iterable[T]]) -> List[T]:
+    """Collapse nested iterables into a flat list using itertools."""
+    return list(itertools.chain.from_iterable(items))
 
-    def result(self) -> Any:
-        return self._v
+def chunker(iterable: Iterable[T], n: int) -> Iterable[List[T]]:
+    """Slice an iterable into chunks of fixed size n."""
+    args = [iter(iterable)] * n
+    return ([e for e in t if e is not None] for t in itertools.zip_longest(*args))
 
-def retry_on_failure(retries: int = 3):
+def memoize_by_attr(attr: str) -> Callable:
+    """Cache function results based on an object attribute."""
     def decorator(func: Callable):
+        cache = {}
         @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            last_ex = None
-            for i in range(retries):
-                try:
-                    return func(*args, **kwargs)
-                except Exception as e:
-                    last_ex = e
-                    logger.warning(f'attempt {i+1} failed: {e}')
-            raise last_ex
+        def wrapper(obj):
+            key = getattr(obj, attr)
+            if key not in cache:
+                cache[key] = func(obj)
+            return cache[key]
         return wrapper
     return decorator
 
-def sanitize_dict(data: dict) -> dict:
-    return {str(k).strip(): (v.strip() if isinstance(v, str) else v) for k, v in data.items()}
-
-def compose(*functions):
-    return lambda x: functools.reduce(lambda v, f: f(v), functions, x)
+def silent_map(func: Callable[[T], Any], items: Iterable[T]) -> List[Any]:
+    """Execute function on items, suppressing and skipping errors."""
+    results = []
+    for item in items:
+        try:
+            results.append(func(item))
+        except Exception:
+            continue
+    return results
