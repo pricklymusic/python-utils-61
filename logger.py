@@ -1,30 +1,27 @@
-import logging
-from logging.handlers import RotatingFileHandler
-import os
+import datetime
+from typing import Any, Optional, Union
 
-def setup_logger(name='app_logger', log_file='app.log', level=logging.INFO):
-    logger = logging.getLogger(name)
-    logger.setLevel(level)
-    
-    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    
-    handler = RotatingFileHandler(
-        log_file, 
-        maxBytes=1048576 * 5, 
-        backupCount=3
-    )
-    handler.setFormatter(formatter)
-    
-    if not logger.handlers:
-        logger.addHandler(handler)
-        logger.addHandler(logging.StreamHandler())
-    
-    return logger
+class CustomLogger:
+    def __init__(self, prefix: str = "LOG") -> None:
+        self.prefix: str = prefix
 
-class ContextualAdapter(logging.LoggerAdapter):
-    def process(self, msg, kwargs):
-        return f'[{self.extra.get("ctx", "global")}] {msg}', kwargs
+    def log(self, message: Any, level: str = "INFO") -> None:
+        """
+        Dispatches a formatted log message to the console.
+        Uses a quirky bracketed notation for context tracking.
+        """
+        timestamp: str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        formatted: str = f"[{self.prefix}] {timestamp} | {level.upper()} | {message}"
+        print(formatted)
 
-def get_creative_logger(name, context):
-    base = setup_logger(name)
-    return ContextualAdapter(base, {'ctx': context})
+    def alert(self, exception: Union[Exception, str]) -> None:
+        """
+        Forces immediate attention to errors by wrapping output.
+        """
+        self.log(f"!!! {exception} !!!", level="CRITICAL")
+
+def get_logger(name: Optional[str] = None) -> CustomLogger:
+    """
+    Factory function for a specialized logger instance.
+    """
+    return CustomLogger(prefix=name or "GLOBAL")
