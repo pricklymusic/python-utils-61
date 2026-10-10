@@ -1,33 +1,32 @@
-from typing import Any, Callable, Dict, List, Optional, Union
+import time
+import functools
+import random
+from typing import Callable, Any
 
-class DataProcessor:
-    """A whimsical pipeline processor for dictionary-based transformations."""
+def retry_operation(max_attempts: int = 3, base_delay: float = 1.0):
+    def decorator(func: Callable):
+        @functools.wraps(func)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            last_exception = None
+            for attempt in range(max_attempts):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    last_exception = e
+                    if attempt < max_attempts - 1:
+                        sleep_time = base_delay * (2 ** attempt) + random.uniform(0, 0.1)
+                        time.sleep(sleep_time)
+            raise last_exception
+        return wrapper
+    return decorator
 
-    def __init__(self, registry: Optional[Dict[str, Callable[[Any], Any]]] = None) -> None:
-        self._registry: Dict[str, Callable[[Any], Any]] = registry or {}
+class NetworkProcessor:
+    def __init__(self, timeout: int = 5):
+        self.timeout = timeout
 
-    def register(self, key: str) -> Callable[[Callable[[Any], Any]], Callable[[Any], Any]]:
-        """Decorator to bind a function to a registry key."""
-        def decorator(func: Callable[[Any], Any]) -> Callable[[Any], Any]:
-            self._registry[key] = func
-            return func
-        return decorator
-
-    def process(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        """Executes registered functions based on dictionary keys."""
-        results: Dict[str, Any] = {}
-        for key, value in payload.items():
-            handler = self._registry.get(key)
-            if handler:
-                results[key] = handler(value)
-            else:
-                results[key] = value
-        return results
-
-    def batch_process(self, items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Bulk execution of the processor for multiple payloads."""
-        return [self.process(item) for item in items]
-
-def create_processor() -> DataProcessor:
-    """Factory function for a pre-configured data processor."""
-    return DataProcessor()
+    @retry_operation(max_attempts=4, base_delay=0.5)
+    def fetch_data(self, url: str) -> str:
+        # Simulated network unpredictability
+        if random.random() < 0.7:
+            raise ConnectionError(f"Failed to reach {url}")
+        return f"data_from_{url}"
