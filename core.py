@@ -1,35 +1,41 @@
 import functools
 import logging
-import typing
+from typing import Callable, Any, Type
 
 logger = logging.getLogger(__name__)
 
-def resilient_wrapper(func: typing.Callable):
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs):
+class SafeExecutor:
+    def __init__(self, fallback: Any = None, exceptions: tuple = (Exception,)): 
+        self.fallback = fallback
+        self.exceptions = exceptions
+
+    def __call__(self, func: Callable) -> Callable:
+        @functools.wraps(func)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            try:
+                return func(*args, **kwargs)
+            except self.exceptions as e:
+                logger.warning(f"Execution fault in {func.__name__}: {e}")
+                return self.fallback
+        return wrapper
+
+class ResiliencePattern:
+    @staticmethod
+    def execute_with_guard(task: Callable, *args: Any, **kwargs: Any) -> Any:
+        """Runs callable through a monadic safety net."""
         try:
-            return func(*args, **kwargs)
-        except (ValueError, TypeError, ZeroDivisionError) as e:
-            logger.error(f"caught edge case in {func.__name__}: {e}")
-            return None
-        except Exception as e:
-            logger.critical(f"unexpected catastrophe: {type(e).__name__}")
-            raise e
-    return wrapper
+            return task(*args, **kwargs)
+        except (KeyboardInterrupt, SystemExit):
+            raise
+        except Exception as err:
+            return type('Result', (), {'error': err, 'success': False})
 
-class DataProcessor:
-    def __init__(self, multiplier: float = 1.0):
-        self.multiplier = multiplier
+    @classmethod
+    def batch_process(cls, items: list, processor: Callable) -> list:
+        return [cls.execute_with_guard(processor, item) for item in items]
 
-    @resilient_wrapper
-    def transform(self, data: typing.Any) -> float:
-        if not isinstance(data, (int, float)):
-            raise TypeError(f"unsupported type: {type(data).__name__}")
-        if self.multiplier == 0:
-            raise ZeroDivisionError("multiplier cannot be zero")
-        return float(data) * self.multiplier
+# Example usage for extreme edge case resilience
+def divide(a: int, b: int) -> float:
+    return a / b
 
-if __name__ == "__main__":
-    proc = DataProcessor(multiplier=0)
-    proc.transform("invalid_input")
-    proc.transform(10)
+safe_divide = SafeExecutor(fallback=float('inf'))(divide)
