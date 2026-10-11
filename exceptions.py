@@ -1,32 +1,54 @@
-import functools
+import sys
+from typing import Any, Dict, Optional, Type
 
-class OptimizationError(Exception):
-    """Base exception for resource bottlenecks."""
-    pass
 
-class MemoizationCache:
-    """O(1) look-up registry for hot-path function results."""
-    _registry = {}
+class MetaUtilError(type):
+    """Metaclass that automatically catalogs exception types by code."""
 
-    def __call__(self, func):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            key = (func.__name__, args, frozenset(kwargs.items()))
-            if key not in self._registry:
-                self._registry[key] = func(*args, **kwargs)
-            return self._registry[key]
-        return wrapper
+    _registry: Dict[str, Type["BaseUtilError"]] = {}
 
-@MemoizationCache()
-def compute_heavy_metric(data_points: tuple) -> float:
-    """Expensive calculation with memoization optimization."""
-    return sum(x ** 2.5 for x in data_points) / len(data_points)
+    def __init__(cls, name, bases, attrs):
+        super().__init__(name, bases, attrs)
+        if name != "BaseUtilError":
+            code = getattr(cls, "code", name.lower().replace("error", ""))
+            cls._registry[code] = cls
 
-def validation_gate(condition: bool):
-    """Inline check for performance-critical path segments."""
-    if not condition:
-        raise OptimizationError("Execution threshold exceeded")
 
-def cache_purge():
-    """Manual garbage collection of memoized results."""
-    MemoizationCache._registry.clear()
+class BaseUtilError(Exception, metaclass=MetaUtilError):
+    """Base exception supporting fluent context chaining and structural reporting."""
+
+    code: str = "generic"
+
+    def __init__(self, message: str, payload: Optional[Dict[str, Any]] = None):
+        super().__init__(message)
+        self.message = message
+        self.payload = payload or {}
+
+    def attach(self, **kwargs: Any) -> "BaseUtilError":
+        """Attach runtime context key-values in a chainable manner."""
+        self.payload.update(kwargs)
+        return self
+
+    def format_details(self) -> str:
+        """Render error message with formatted context metadata."""
+        lines = [f"[{self.code.upper()}] {self.message}"]
+        if self.payload:
+            lines.extend(f"  > {k} = {v!r}" for k, v in self.payload.items())
+        return "\n".join(lines)
+
+
+class ValidationError(BaseUtilError):
+    code = "validation_failure"
+
+
+class ProcessingError(BaseUtilError):
+    code = "processing_failure"
+
+
+class ConfigurationError(BaseUtilError):
+    code = "configuration_invalid"
+
+
+def resolve_error_class(code: str) -> Type[BaseUtilError]:
+    """Resolve error class dynamically from registered codes."""
+    return MetaUtilError._registry.get(code, BaseUtilError)
