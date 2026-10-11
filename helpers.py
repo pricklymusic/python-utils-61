@@ -1,69 +1,61 @@
-from typing import TypeVar, Generic, Callable, Any, List
-
-T = TypeVar('T')
-U = TypeVar('U')
+import re
+from typing import Any, Callable, Dict, List, Union
 
 
-class LazyPipe(Generic[T]):
-    """A fluent execution pipeline wrapper that defers computation until evaluation.
+class DataLens:
+    """A flexible nested data accessor and transformer using path syntax."""
 
-    Allows chaining function calls using the binary right-shift operator (>>).
-    """
+    _TOKEN_REGEX = re.compile(r"([^.\[\]]+)|\[(\d+)\]")
 
-    def __init__(self, value: T) -> None:
-        self._value: T = value
-        self._steps: List[Callable[[Any], Any]] = []
+    def __init__(self, data: Any) -> None:
+        self.data = data
 
-    def __rshift__(self, func: Callable[[Any], U]) -> "LazyPipe[U]":
-        """Registers a transformation step using the bitwise right-shift (>>) operator.
+    def _parse_path(self, path: str) -> List[Union[str, int]]:
+        tokens: List[Union[str, int]] = []
+        for match in self._TOKEN_REGEX.finditer(path):
+            key, idx = match.groups()
+            if key is not None:
+                tokens.append(key)
+            elif idx is not None:
+                tokens.append(int(idx))
+        return tokens
 
-        Args:
-            func: A unary callable to transform the intermediate value.
-
-        Returns:
-            A LazyPipe instance with the updated pipeline state.
-        """
-        new_pipe: LazyPipe[U] = LazyPipe(self._value)
-        new_pipe._steps = self._steps + [func]
-        return new_pipe
-
-    def tap(self, inspector: Callable[[Any], None]) -> "LazyPipe[T]":
-        """Executes a side-effect function without altering the pipeline value.
-
-        Args:
-            inspector: Callable that accepts the current pipeline state.
-
-        Returns:
-            Self with the side-effect step appended.
-        """
-        def _tap_wrapper(val: Any) -> Any:
-            inspector(val)
-            return val
-
-        return self >> _tap_wrapper
-
-    def resolve(self) -> Any:
-        """Executes all queued transformations sequentially.
-
-        Returns:
-            The evaluated result of the entire pipeline sequence.
-        """
-        curr: Any = self._value
-        for step in self._steps:
-            curr = step(curr)
+    def get(self, path: str, default: Any = None) -> Any:
+        """Retrieve value at path e.g. 'users[0].profile.name'."""
+        curr = self.data
+        for token in self._parse_path(path):
+            try:
+                curr = curr[token]
+            except (KeyError, IndexError, TypeError):
+                return default
         return curr
 
-    def __repr__(self) -> str:
-        return f"LazyPipe(steps={len(self._steps)}, seed={self._value!r})"
+    def transform(self, path: str, fn: Callable[[Any], Any]) -> "DataLens":
+        """Apply fn to value at path in-place and return self."""
+        tokens = self._parse_path(path)
+        if not tokens:
+            return self
 
+        curr = self.data
+        for token in tokens[:-1]:
+            curr = curr[token]
 
-def pipe(value: T) -> LazyPipe[T]:
-    """Initializes a deferred LazyPipe pipeline with a seed value.
+        curr[tokens[-1]] = fn(curr[tokens[-1]])
+        return self
 
-    Args:
-        value: The starting value for subsequent transformation steps.
+    def flatten(self) -> Dict[str, Any]:
+        """Flatten nested structure into dot-notation paths."""
+        flat: Dict[str, Any] = {}
 
-    Returns:
-        A LazyPipe object wrapping the given seed value.
-    """
-    return LazyPipe(value)
+        def _walk(obj: Any, prefix: str) -> None:
+            if isinstance(obj, dict):
+                for k, v in obj.items():
+                    _walk(v, f"{prefix}.{k}" if prefix else str(k))
+            elif isinstance(obj, (list, tuple)):
+                for i, v in enumerate(obj):
+                    _walk(v, f"{prefix}[{i}]")
+            else:
+                flat[prefix] = obj
+
+        _walk(self.data, "")
+        return flat
