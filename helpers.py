@@ -1,58 +1,69 @@
-from typing import Any, Callable, Dict, Union
+from typing import TypeVar, Generic, Callable, Any, List
+
+T = TypeVar('T')
+U = TypeVar('U')
 
 
-class DataLens:
-    """Lightweight lens for querying and transforming nested structures."""
+class LazyPipe(Generic[T]):
+    """A fluent execution pipeline wrapper that defers computation until evaluation.
 
-    def __init__(self, data: Any):
-        self._data = data
+    Allows chaining function calls using the binary right-shift operator (>>).
+    """
 
-    def extract(self, path: str, default: Any = None) -> Any:
-        """Extract value from nested dict/list using dot-notation (e.g. 'users[0].name')."""
-        curr = self._data
-        tokens = path.replace("]", "").replace("[", ".").split(".")
-        for token in tokens:
-            if not token:
-                continue
-            if isinstance(curr, dict) and token in curr:
-                curr = curr[token]
-            elif isinstance(curr, (list, tuple)) and token.isdigit():
-                idx = int(token)
-                curr = curr[idx] if 0 <= idx < len(curr) else default
-            else:
-                return default
+    def __init__(self, value: T) -> None:
+        self._value: T = value
+        self._steps: List[Callable[[Any], Any]] = []
+
+    def __rshift__(self, func: Callable[[Any], U]) -> "LazyPipe[U]":
+        """Registers a transformation step using the bitwise right-shift (>>) operator.
+
+        Args:
+            func: A unary callable to transform the intermediate value.
+
+        Returns:
+            A LazyPipe instance with the updated pipeline state.
+        """
+        new_pipe: LazyPipe[U] = LazyPipe(self._value)
+        new_pipe._steps = self._steps + [func]
+        return new_pipe
+
+    def tap(self, inspector: Callable[[Any], None]) -> "LazyPipe[T]":
+        """Executes a side-effect function without altering the pipeline value.
+
+        Args:
+            inspector: Callable that accepts the current pipeline state.
+
+        Returns:
+            Self with the side-effect step appended.
+        """
+        def _tap_wrapper(val: Any) -> Any:
+            inspector(val)
+            return val
+
+        return self >> _tap_wrapper
+
+    def resolve(self) -> Any:
+        """Executes all queued transformations sequentially.
+
+        Returns:
+            The evaluated result of the entire pipeline sequence.
+        """
+        curr: Any = self._value
+        for step in self._steps:
+            curr = step(curr)
         return curr
 
-    def flatten(self, sep: str = ".") -> Dict[str, Any]:
-        """Flatten nested dict or list into a single-level dict with key paths."""
-        flat: Dict[str, Any] = {}
-
-        def _walk(node: Any, prefix: str = ""):
-            if isinstance(node, dict):
-                for k, v in node.items():
-                    new_key = f"{prefix}{sep}{k}" if prefix else str(k)
-                    _walk(v, new_key)
-            elif isinstance(node, (list, tuple)):
-                for idx, v in enumerate(node):
-                    new_key = f"{prefix}[{idx}]"
-                    _walk(v, new_key)
-            else:
-                flat[prefix] = node
-
-        _walk(self._data)
-        return flat
-
-    def morph(self, schema: Dict[str, Union[str, Callable[[Any], Any]]]) -> Dict[str, Any]:
-        """Transform data using a mapping schema of target keys to paths or functions."""
-        result = {}
-        for target, rule in schema.items():
-            if callable(rule):
-                result[target] = rule(self._data)
-            elif isinstance(rule, str):
-                result[target] = self.extract(rule)
-        return result
+    def __repr__(self) -> str:
+        return f"LazyPipe(steps={len(self._steps)}, seed={self._value!r})"
 
 
-def lens(data: Any) -> DataLens:
-    """Factory function providing fluent access to DataLens operations."""
-    return DataLens(data)
+def pipe(value: T) -> LazyPipe[T]:
+    """Initializes a deferred LazyPipe pipeline with a seed value.
+
+    Args:
+        value: The starting value for subsequent transformation steps.
+
+    Returns:
+        A LazyPipe object wrapping the given seed value.
+    """
+    return LazyPipe(value)
