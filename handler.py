@@ -1,45 +1,60 @@
 import functools
-import time
 import logging
-from typing import Callable, Any
+from typing import Any, Callable, List, Optional, Tuple, Type
 
-def retry_on_failure(retries: int = 3, delay: float = 0.5):
-    def decorator(func: Callable):
+logger = logging.getLogger(__name__)
+
+
+class EdgeCaseTrap:
+    """Creative error handling wrapper for unpredictable edge cases."""
+
+    def __init__(self, default_return: Any = None):
+        self.default_return = default_return
+        self._handlers: List[Tuple[Type[BaseException], Callable]] = []
+
+    def on(
+        self,
+        *exceptions: Type[BaseException],
+        fallback: Optional[Callable] = None,
+    ):
+        """Register exception rules with optional dynamic recovery callbacks."""
+        def decorator(func: Callable) -> Callable:
+            handler_func = fallback or (lambda e, *a, **k: self.default_return)
+            for exc in exceptions:
+                self._handlers.append((exc, handler_func))
+            return func
+
+        return decorator
+
+    def __call__(self, func: Callable) -> Callable:
         @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            last_ex = None
-            for i in range(retries):
-                try:
-                    return func(*args, **kwargs)
-                except Exception as e:
-                    last_ex = e
-                    time.sleep(delay * (2 ** i))
-            raise last_ex
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            try:
+                return func(*args, **kwargs)
+            except BaseException as err:
+                exc_type = type(err)
+                for registered_exc, handler in self._handlers:
+                    if issubclass(exc_type, registered_exc):
+                        logger.warning(
+                            "Edge case intercepted in %s: %s", func.__name__, err
+                        )
+                        return handler(err, *args, **kwargs)
+
+                if isinstance(
+                    err, (ZeroDivisionError, IndexError, KeyError, TypeError, ValueError)
+                ):
+                    logger.error(
+                        "Standard edge case suppressed in %s: %s", func.__name__, err
+                    )
+                    return self.default_return
+                raise err
+
         return wrapper
-    return decorator
 
-def batch_process(iterable: list, size: int):
-    for i in range(0, len(iterable), size):
-        yield iterable[i:i + size]
 
-def dict_deep_merge(base: dict, update: dict) -> dict:
-    for key, value in update.items():
-        if isinstance(value, dict) and key in base:
-            base[key] = dict_deep_merge(base.get(key, {}), value)
-        else:
-            base[key] = value
-    return base
-
-def memoize_with_expiry(ttl: int):
-    cache = {}
-    def decorator(func: Callable):
-        @functools.wraps(func)
-        def wrapper(*args):
-            now = time.time()
-            if args in cache and (now - cache[args][1]) < ttl:
-                return cache[args][0]
-            result = func(*args)
-            cache[args] = (result, now)
-            return result
-        return wrapper
-    return decorator
+def safe_execute(
+    func: Callable, *args: Any, default: Any = None, **kwargs: Any
+) -> Any:
+    """Executes a call wrapped with an ad-hoc resilient trap."""
+    trap = EdgeCaseTrap(default_return=default)
+    return trap(func)(*args, **kwargs)
