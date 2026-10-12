@@ -1,42 +1,28 @@
+import time
 import functools
-import itertools
-import operator
-from typing import Any, Callable, Iterable, List, TypeVar
+from typing import Callable, Any, Type
 
-T = TypeVar('T')
-
-def compose(*functions: Callable[[Any], Any]) -> Callable[[Any], Any]:
-    """Chain a sequence of functions into a single pipeline."""
-    return lambda x: functools.reduce(lambda v, f: f(v), functions, x)
-
-def flatten(items: Iterable[Iterable[T]]) -> List[T]:
-    """Collapse nested iterables into a flat list using itertools."""
-    return list(itertools.chain.from_iterable(items))
-
-def chunker(iterable: Iterable[T], n: int) -> Iterable[List[T]]:
-    """Slice an iterable into chunks of fixed size n."""
-    args = [iter(iterable)] * n
-    return ([e for e in t if e is not None] for t in itertools.zip_longest(*args))
-
-def memoize_by_attr(attr: str) -> Callable:
-    """Cache function results based on an object attribute."""
-    def decorator(func: Callable):
-        cache = {}
+def retry_on_failure(max_retries: int = 3, delay: float = 1.0, exceptions: tuple = (Exception,)): 
+    def decorator(func: Callable) -> Callable:
         @functools.wraps(func)
-        def wrapper(obj):
-            key = getattr(obj, attr)
-            if key not in cache:
-                cache[key] = func(obj)
-            return cache[key]
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            attempts = 0
+            while attempts < max_retries:
+                try:
+                    return func(*args, **kwargs)
+                except exceptions as e:
+                    attempts += 1
+                    if attempts >= max_retries:
+                        raise e
+                    time.sleep(delay * (2 ** (attempts - 1)))
+            return None
         return wrapper
     return decorator
 
-def silent_map(func: Callable[[T], Any], items: Iterable[T]) -> List[Any]:
-    """Execute function on items, suppressing and skipping errors."""
-    results = []
-    for item in items:
-        try:
-            results.append(func(item))
-        except Exception:
-            continue
-    return results
+class ExponentialBackoffHandler:
+    def __init__(self, target_func: Callable, retries: int = 3):
+        self.target = target_func
+        self.limit = retries
+
+    def execute(self, *args: Any, **kwargs: Any) -> Any:
+        return retry_on_failure(max_retries=self.limit)(self.target)(*args, **kwargs)
