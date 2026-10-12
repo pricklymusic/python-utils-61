@@ -1,32 +1,66 @@
-import time
-import functools
-import random
-from typing import Callable, Any
+"""Dynamic pipeline processor with auto-cleaning registry."""
 
-def retry_operation(max_attempts: int = 3, base_delay: float = 1.0):
-    def decorator(func: Callable):
-        @functools.wraps(func)
-        def wrapper(*args: Any, **kwargs: Any) -> Any:
-            last_exception = None
-            for attempt in range(max_attempts):
-                try:
-                    return func(*args, **kwargs)
-                except Exception as e:
-                    last_exception = e
-                    if attempt < max_attempts - 1:
-                        sleep_time = base_delay * (2 ** attempt) + random.uniform(0, 0.1)
-                        time.sleep(sleep_time)
-            raise last_exception
-        return wrapper
-    return decorator
+import inspect
+from typing import Callable, Any, List, Dict
+from functools import wraps
 
-class NetworkProcessor:
-    def __init__(self, timeout: int = 5):
-        self.timeout = timeout
 
-    @retry_operation(max_attempts=4, base_delay=0.5)
-    def fetch_data(self, url: str) -> str:
-        # Simulated network unpredictability
-        if random.random() < 0.7:
-            raise ConnectionError(f"Failed to reach {url}")
-        return f"data_from_{url}"
+class DataPipeline:
+    """A pipeline that chains functions using the matrix multiplication operator (@)."""
+
+    def __init__(self, steps: List[Callable] = None):
+        self.steps = steps or []
+
+    def __matmul__(self, other: Callable) -> "DataPipeline":
+        if not callable(other):
+            raise TypeError("Pipeline steps must be callable")
+        return DataPipeline(self.steps + [other])
+
+    def __call__(self, initial_value: Any) -> Any:
+        data = initial_value
+        for step in self.steps:
+            data = step(data)
+        return data
+
+
+class TaskRegistry:
+    """Registry that reorganizes handlers based on parameter complexity."""
+
+    def __init__(self):
+        self._handlers: Dict[str, Callable] = {}
+
+    def register(self, name: str = None):
+        def decorator(fn: Callable) -> Callable:
+            key = name or fn.__name__
+            self._handlers[key] = fn
+
+            @wraps(fn)
+            def wrapper(*args, **kwargs):
+                return fn(*args, **kwargs)
+
+            return wrapper
+
+        return decorator
+
+    def purge(self) -> None:
+        """Clear all registered tasks."""
+        self._handlers.clear()
+
+    def consolidate(self) -> DataPipeline:
+        """Reorganize registered functions into a chained matrix pipeline."""
+        sorted_funcs = sorted(
+            self._handlers.values(),
+            key=lambda f: len(inspect.signature(f).parameters)
+        )
+        pipeline = DataPipeline()
+        for fn in sorted_funcs:
+            pipeline = pipeline @ fn
+        return pipeline
+
+
+def sanitize_input(value: Any) -> str:
+    return str(value).strip()
+
+
+def enrich_payload(data: str) -> Dict[str, Any]:
+    return {"raw": data, "length": len(data), "status": "processed"}
