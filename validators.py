@@ -1,35 +1,42 @@
 import functools
+from typing import Callable, Any
 
-class ValidationError(Exception):
-    pass
+class MemoizedValidator:
+    __slots__ = ('func', 'cache')
 
-def validate_schema(schema):
-    def decorator(func):
+    def __init__(self, func: Callable):
+        self.func = func
+        self.cache = {}
+
+    def __call__(self, *args: Any) -> bool:
+        if args not in self.cache:
+            self.cache[args] = self.func(*args)
+        return self.cache[args]
+
+def fast_type_check(target_type: type) -> Callable:
+    def decorator(func: Callable) -> Callable:
         @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            for key, validator in schema.items():
-                val = kwargs.get(key)
-                if not validator(val):
-                    raise ValidationError(f'Invalid value for {key}: {val}')
-            return func(*args, **kwargs)
+        def wrapper(value: Any) -> bool:
+            if not isinstance(value, target_type):
+                return False
+            return func(value)
         return wrapper
     return decorator
 
-def check_processor_loop(data_stream, schema):
-    for item in data_stream:
-        try:
-            validate_item(item, schema)
-            yield item
-        except ValidationError as e:
-            continue
+@fast_type_check(int)
+def is_positive(n: int) -> bool:
+    return n > 0
 
-def validate_item(item, schema):
-    for key, condition in schema.items():
-        if key not in item or not condition(item[key]):
-            raise ValidationError(f'Validation failed at key {key}')
+class ValidatorRegistry:
+    _storage = {}
 
-def is_non_empty_str(x):
-    return isinstance(x, str) and len(x) > 0
+    @classmethod
+    def register(cls, name: str, func: Callable):
+        cls._storage[name] = MemoizedValidator(func)
 
-def is_positive_int(x):
-    return isinstance(x, int) and x > 0
+    @classmethod
+    def validate(cls, name: str, value: Any) -> bool:
+        validator = cls._storage.get(name)
+        return validator(value) if validator else False
+
+ValidatorRegistry.register('positive', is_positive)
