@@ -1,69 +1,63 @@
-import time
-import random
-from typing import Type, Tuple, Optional, Any
+"""Core pipeline composition engine with stream transformation utilities."""
+
+from typing import Callable, Generic, Iterable, Iterator, TypeVar
+
+I = TypeVar("I")
+O = TypeVar("O")
+R = TypeVar("R")
 
 
-class RetryAttempt:
-    """Context manager representing a single attempt in a retry loop."""
+class Step(Generic[I, O]):
+    """Composable transformation step supporting infix chaining via `>>`.
 
-    def __init__(self, loop: "RetryLoop") -> None:
-        self.loop = loop
+    Wraps stream operations to enable clean sequence processing pipelines.
+    """
 
-    def __enter__(self) -> "RetryAttempt":
-        return self
+    def __init__(self, transform: Callable[[Iterable[I]], Iterator[O]]) -> None:
+        """Initialize step with generator function over an iterable stream."""
+        self._transform = transform
 
-    def __exit__(
-        self,
-        exc_type: Optional[Type[BaseException]],
-        exc_val: Optional[BaseException],
-        exc_tb: Any,
-    ) -> bool:
-        if exc_type is None:
-            self.loop.succeeded = True
-            return True
-        if issubclass(exc_type, self.loop.exceptions):
-            self.loop.last_exception = exc_val
-            return True
-        return False
+    def __call__(self, stream: Iterable[I]) -> Iterator[O]:
+        """Apply the transformation step to an incoming data stream."""
+        return self._transform(stream)
+
+    def __rshift__(self, other: "Step[O, R]") -> "Step[I, R]":
+        """Compose current step with another using the `>>` operator."""
+        return Step(lambda stream: other(self(stream)))
 
 
-class RetryLoop:
-    """Iterator for resilient execution of network operations using jittered backoff."""
+def map_stream(fn: Callable[[I], O]) -> Step[I, O]:
+    """Create a step applying `fn` to every element in the stream."""
 
-    def __init__(
-        self,
-        max_attempts: int = 3,
-        delay_base: float = 0.5,
-        max_delay: float = 10.0,
-        exceptions: Tuple[Type[Exception], ...] = (Exception,),
-    ) -> None:
-        self.max_attempts = max_attempts
-        self.delay_base = delay_base
-        self.max_delay = max_delay
-        self.exceptions = exceptions
-        self.succeeded = False
-        self.last_exception: Optional[BaseException] = None
-        self.current_attempt = 0
+    def _mapper(stream: Iterable[I]) -> Iterator[O]:
+        for item in stream:
+            yield fn(item)
 
-    def __iter__(self) -> "RetryLoop":
-        return self
+    return Step(_mapper)
 
-    def __next__(self) -> RetryAttempt:
-        if self.succeeded:
-            raise StopIteration
-        if self.current_attempt >= self.max_attempts:
-            if self.last_exception:
-                raise RuntimeError(
-                    f"Network operation failed after {self.max_attempts} attempts"
-                ) from self.last_exception
-            raise StopIteration
 
-        if self.current_attempt > 0:
-            calculated_delay = min(
-                self.max_delay, self.delay_base * (2 ** (self.current_attempt - 1))
-            )
-            jittered_delay = random.uniform(0, calculated_delay)
-            time.sleep(jittered_delay)
+def filter_stream(predicate: Callable[[I], bool]) -> Step[I, I]:
+    """Create a step filtering elements based on a boolean predicate."""
 
-        self.current_attempt += 1
-        return RetryAttempt(self)
+    def _filter(stream: Iterable[I]) -> Iterator[I]:
+        for item in stream:
+            if predicate(item):
+                yield item
+
+    return Step(_filter)
+
+
+def batch_stream(size: int) -> Step[I, list[I]]:
+    """Create a step grouping stream elements into lists of length `size`."""
+
+    def _batcher(stream: Iterable[I]) -> Iterator[list[I]]:
+        buffer: list[I] = []
+        for item in stream:
+            buffer.append(item)
+            if len(buffer) == size:
+                yield buffer
+                buffer = []
+        if buffer:
+            yield buffer
+
+    return Step(_batcher)
