@@ -1,36 +1,33 @@
 import logging
 from logging.handlers import RotatingFileHandler
-import os
+import sys
 
 def setup_logger(name='app_logger', log_file='app.log', level=logging.INFO):
     logger = logging.getLogger(name)
     logger.setLevel(level)
+    
+    formatter = logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
 
-    if not logger.handlers:
-        # Creative interpretation of file rotation: 
-        # 5MB per file, keeping 3 historical backups
-        handler = RotatingFileHandler(
-            log_file, 
-            maxBytes=5*1024*1024, 
-            backupCount=3
-        )
-        
-        formatter = logging.Formatter(
-            '%(asctime)s | %(levelname)-8s | %(name)s | %(message)s',
-            datefmt='%Y-%m-%d %H:%M:%S'
-        )
-        handler.setFormatter(formatter)
-        logger.addHandler(handler)
-        
-        # Optional console mirror for development visibility
-        console = logging.StreamHandler()
-        console.setFormatter(formatter)
-        logger.addHandler(console)
+    # Console handler for real-time observation
+    console = logging.StreamHandler(sys.stdout)
+    console.setFormatter(formatter)
+    logger.addHandler(console)
+
+    # Rotating file handler (5MB per file, keep 3 backups)
+    handler = RotatingFileHandler(
+        log_file, 
+        maxBytes=5*1024*1024, 
+        backupCount=3
+    )
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
 
     return logger
 
-# Dynamic singleton-like access for global module usage
-app_logger = setup_logger()
+# Instantiate shared logger as a singleton
+root_logger = setup_logger()
 
 def get_logger():
-    return app_logger
+    return root_logger
