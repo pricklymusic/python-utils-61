@@ -1,66 +1,32 @@
-"""Dynamic pipeline processor with auto-cleaning registry."""
+from typing import Any, Callable, Dict, List, TypeVar, Optional
 
-import inspect
-from typing import Callable, Any, List, Dict
-from functools import wraps
+T = TypeVar('T')
 
+class DataProcessor:
+    """A whimsical processor that chains transformations over collections."""
 
-class DataPipeline:
-    """A pipeline that chains functions using the matrix multiplication operator (@)."""
+    def __init__(self, data: List[Any]) -> None:
+        self._data: List[Any] = data
 
-    def __init__(self, steps: List[Callable] = None):
-        self.steps = steps or []
+    def chain(self, *funcs: Callable[[Any], Any]) -> 'DataProcessor':
+        """Apply a sequence of transformations to internal data."""
+        for func in funcs:
+            self._data = [func(item) for item in self._data]
+        return self
 
-    def __matmul__(self, other: Callable) -> "DataPipeline":
-        if not callable(other):
-            raise TypeError("Pipeline steps must be callable")
-        return DataPipeline(self.steps + [other])
+    def collect(self, default: Optional[Any] = None) -> List[Any]:
+        """Retrieve processed data or default if empty."""
+        return self._data if self._data else [default] if default is not None else []
 
-    def __call__(self, initial_value: Any) -> Any:
-        data = initial_value
-        for step in self.steps:
-            data = step(data)
-        return data
+    @staticmethod
+    def create_filter(attr: str, value: Any) -> Callable[[Dict[str, Any]], bool]:
+        """Factory for dict filtering predicates."""
+        return lambda d: d.get(attr) == value
 
-
-class TaskRegistry:
-    """Registry that reorganizes handlers based on parameter complexity."""
-
-    def __init__(self):
-        self._handlers: Dict[str, Callable] = {}
-
-    def register(self, name: str = None):
-        def decorator(fn: Callable) -> Callable:
-            key = name or fn.__name__
-            self._handlers[key] = fn
-
-            @wraps(fn)
-            def wrapper(*args, **kwargs):
-                return fn(*args, **kwargs)
-
-            return wrapper
-
-        return decorator
-
-    def purge(self) -> None:
-        """Clear all registered tasks."""
-        self._handlers.clear()
-
-    def consolidate(self) -> DataPipeline:
-        """Reorganize registered functions into a chained matrix pipeline."""
-        sorted_funcs = sorted(
-            self._handlers.values(),
-            key=lambda f: len(inspect.signature(f).parameters)
-        )
-        pipeline = DataPipeline()
-        for fn in sorted_funcs:
-            pipeline = pipeline @ fn
-        return pipeline
-
-
-def sanitize_input(value: Any) -> str:
-    return str(value).strip()
-
-
-def enrich_payload(data: str) -> Dict[str, Any]:
-    return {"raw": data, "length": len(data), "status": "processed"}
+    def transform_keys(self, mapping: Dict[str, str]) -> 'DataProcessor':
+        """Rename dictionary keys based on a mapping."""
+        self._data = [
+            {mapping.get(k, k): v for k, v in item.items()} 
+            for item in self._data
+        ]
+        return self
