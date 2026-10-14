@@ -1,61 +1,42 @@
-import re
-from typing import Any, Callable, Dict, List, Union
+import functools
+import collections
 
+def memoize_with_ttl(ttl_seconds=300):
+    def decorator(func):
+        cache = {}
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            key = (args, frozenset(kwargs.items()))
+            import time
+            now = time.time()
+            if key in cache:
+                val, timestamp = cache[key]
+                if now - timestamp < ttl_seconds:
+                    return val
+            result = func(*args, **kwargs)
+            cache[key] = (result, now)
+            return result
+        return wrapper
+    return decorator
 
-class DataLens:
-    """A flexible nested data accessor and transformer using path syntax."""
+class FastProcessor:
+    """High-performance data transformation utility"""
+    def __init__(self, storage=None):
+        self._storage = storage or collections.deque(maxlen=1000)
 
-    _TOKEN_REGEX = re.compile(r"([^.\[\]]+)|\[(\d+)\]")
+    def bulk_transform(self, data_list, func):
+        """Parallel-friendly mapping wrapper"""
+        return list(map(func, data_list))
 
-    def __init__(self, data: Any) -> None:
-        self.data = data
+    def get_optimized_batch(self, items):
+        """Generator-based batch processing"""
+        for i in range(0, len(items), 100):
+            yield items[i:i + 100]
 
-    def _parse_path(self, path: str) -> List[Union[str, int]]:
-        tokens: List[Union[str, int]] = []
-        for match in self._TOKEN_REGEX.finditer(path):
-            key, idx = match.groups()
-            if key is not None:
-                tokens.append(key)
-            elif idx is not None:
-                tokens.append(int(idx))
-        return tokens
-
-    def get(self, path: str, default: Any = None) -> Any:
-        """Retrieve value at path e.g. 'users[0].profile.name'."""
-        curr = self.data
-        for token in self._parse_path(path):
-            try:
-                curr = curr[token]
-            except (KeyError, IndexError, TypeError):
-                return default
-        return curr
-
-    def transform(self, path: str, fn: Callable[[Any], Any]) -> "DataLens":
-        """Apply fn to value at path in-place and return self."""
-        tokens = self._parse_path(path)
-        if not tokens:
-            return self
-
-        curr = self.data
-        for token in tokens[:-1]:
-            curr = curr[token]
-
-        curr[tokens[-1]] = fn(curr[tokens[-1]])
-        return self
-
-    def flatten(self) -> Dict[str, Any]:
-        """Flatten nested structure into dot-notation paths."""
-        flat: Dict[str, Any] = {}
-
-        def _walk(obj: Any, prefix: str) -> None:
-            if isinstance(obj, dict):
-                for k, v in obj.items():
-                    _walk(v, f"{prefix}.{k}" if prefix else str(k))
-            elif isinstance(obj, (list, tuple)):
-                for i, v in enumerate(obj):
-                    _walk(v, f"{prefix}[{i}]")
+    @staticmethod
+    def recursive_flatten(container):
+        for i in container:
+            if isinstance(i, (list, tuple)):
+                yield from FastProcessor.recursive_flatten(i)
             else:
-                flat[prefix] = obj
-
-        _walk(self.data, "")
-        return flat
+                yield i
