@@ -1,63 +1,37 @@
-"""Core pipeline composition engine with stream transformation utilities."""
+import functools
+import time
 
-from typing import Callable, Generic, Iterable, Iterator, TypeVar
+class Memoizer:
+    def __init__(self, ttl=60):
+        self.cache = {}
+        self.ttl = ttl
 
-I = TypeVar("I")
-O = TypeVar("O")
-R = TypeVar("R")
+    def __call__(self, func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            key = (args, frozenset(kwargs.items()))
+            now = time.monotonic()
+            if key in self.cache:
+                result, timestamp = self.cache[key]
+                if now - timestamp < self.ttl:
+                    return result
+            result = func(*args, **kwargs)
+            self.cache[key] = (result, now)
+            return result
+        return wrapper
 
+def batch_process(items, chunk_size=10):
+    for i in range(0, len(items), chunk_size):
+        yield items[i:i + chunk_size]
 
-class Step(Generic[I, O]):
-    """Composable transformation step supporting infix chaining via `>>`.
+def optimized_compute(data, factor=1.5):
+    memo = Memoizer(ttl=300)
+    
+    @memo
+    def heavy_math(x):
+        return x * factor
 
-    Wraps stream operations to enable clean sequence processing pipelines.
-    """
-
-    def __init__(self, transform: Callable[[Iterable[I]], Iterator[O]]) -> None:
-        """Initialize step with generator function over an iterable stream."""
-        self._transform = transform
-
-    def __call__(self, stream: Iterable[I]) -> Iterator[O]:
-        """Apply the transformation step to an incoming data stream."""
-        return self._transform(stream)
-
-    def __rshift__(self, other: "Step[O, R]") -> "Step[I, R]":
-        """Compose current step with another using the `>>` operator."""
-        return Step(lambda stream: other(self(stream)))
-
-
-def map_stream(fn: Callable[[I], O]) -> Step[I, O]:
-    """Create a step applying `fn` to every element in the stream."""
-
-    def _mapper(stream: Iterable[I]) -> Iterator[O]:
-        for item in stream:
-            yield fn(item)
-
-    return Step(_mapper)
-
-
-def filter_stream(predicate: Callable[[I], bool]) -> Step[I, I]:
-    """Create a step filtering elements based on a boolean predicate."""
-
-    def _filter(stream: Iterable[I]) -> Iterator[I]:
-        for item in stream:
-            if predicate(item):
-                yield item
-
-    return Step(_filter)
-
-
-def batch_stream(size: int) -> Step[I, list[I]]:
-    """Create a step grouping stream elements into lists of length `size`."""
-
-    def _batcher(stream: Iterable[I]) -> Iterator[list[I]]:
-        buffer: list[I] = []
-        for item in stream:
-            buffer.append(item)
-            if len(buffer) == size:
-                yield buffer
-                buffer = []
-        if buffer:
-            yield buffer
-
-    return Step(_batcher)
+    results = []
+    for chunk in batch_process(data):
+        results.extend([heavy_math(item) for item in chunk])
+    return results
