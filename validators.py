@@ -1,42 +1,36 @@
-import functools
-from typing import Callable, Any
-
-class MemoizedValidator:
-    __slots__ = ('func', 'cache')
-
-    def __init__(self, func: Callable):
-        self.func = func
-        self.cache = {}
-
-    def __call__(self, *args: Any) -> bool:
-        if args not in self.cache:
-            self.cache[args] = self.func(*args)
-        return self.cache[args]
-
-def fast_type_check(target_type: type) -> Callable:
-    def decorator(func: Callable) -> Callable:
-        @functools.wraps(func)
-        def wrapper(value: Any) -> bool:
-            if not isinstance(value, target_type):
-                return False
-            return func(value)
-        return wrapper
-    return decorator
-
-@fast_type_check(int)
-def is_positive(n: int) -> bool:
-    return n > 0
+from typing import Any, Callable, Dict, List, Optional
 
 class ValidatorRegistry:
-    _storage = {}
+    def __init__(self) -> None:
+        self._rules: Dict[str, List[Callable[[Any], bool]]] = {}
 
-    @classmethod
-    def register(cls, name: str, func: Callable):
-        cls._storage[name] = MemoizedValidator(func)
+    def register(self, key: str, func: Callable[[Any], bool]) -> None:
+        if key not in self._rules:
+            self._rules[key] = []
+        self._rules[key].append(func)
 
-    @classmethod
-    def validate(cls, name: str, value: Any) -> bool:
-        validator = cls._storage.get(name)
-        return validator(value) if validator else False
+    def validate(self, key: str, value: Any) -> bool:
+        rules = self._rules.get(key, [])
+        return all(rule(value) for rule in rules) if rules else True
 
-ValidatorRegistry.register('positive', is_positive)
+    def __call__(self, key: str) -> Callable[[Callable[[Any], bool]], Callable[[Any], bool]]:
+        def decorator(func: Callable[[Any], bool]) -> Callable[[Any], bool]:
+            self.register(key, func)
+            return func
+        return decorator
+
+validate_engine = ValidatorRegistry()
+
+@validate_engine('email')
+def _is_email(val: Any) -> bool:
+    return isinstance(val, str) and '@' in val and '.' in val
+
+@validate_engine('non_empty')
+def _is_non_empty(val: Any) -> bool:
+    return bool(val) and len(str(val)) > 0
+
+def check_structure(data: Dict[str, Any], schema: Dict[str, str]) -> bool:
+    for key, rule_name in schema.items():
+        if not validate_engine.validate(rule_name, data.get(key)):
+            return False
+    return True
