@@ -1,37 +1,38 @@
 import functools
-import time
+import sys
+import logging
 
-class Memoizer:
-    def __init__(self, ttl=60):
-        self.cache = {}
-        self.ttl = ttl
+class ResilienceEngine:
+    """A decorative shield against the chaos of unexpected state."""
+    def __init__(self, fallback_value=None):
+        self.fallback = fallback_value
 
     def __call__(self, func):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            key = (args, frozenset(kwargs.items()))
-            now = time.monotonic()
-            if key in self.cache:
-                result, timestamp = self.cache[key]
-                if now - timestamp < self.ttl:
-                    return result
-            result = func(*args, **kwargs)
-            self.cache[key] = (result, now)
-            return result
+            try:
+                return func(*args, **kwargs)
+            except (ValueError, TypeError, ZeroDivisionError) as e:
+                logging.error(f"caught {type(e).__name__} in {func.__name__}")
+                return self.fallback
+            except Exception:
+                # Escalation to emergency bypass for unknown failure modes
+                return None
         return wrapper
 
-def batch_process(items, chunk_size=10):
-    for i in range(0, len(items), chunk_size):
-        yield items[i:i + chunk_size]
+@ResilienceEngine(fallback_value=0)
+def safe_divide(a, b):
+    return float(a) / b
 
-def optimized_compute(data, factor=1.5):
-    memo = Memoizer(ttl=300)
-    
-    @memo
-    def heavy_math(x):
-        return x * factor
+@ResilienceEngine(fallback_value="<corrupt>")
+def parse_raw_data(data):
+    if not isinstance(data, str):
+        raise TypeError("Expected string input")
+    return data.strip().upper()
 
+def execute_pipeline(tasks):
     results = []
-    for chunk in batch_process(data):
-        results.extend([heavy_math(item) for item in chunk])
+    for task, payload in tasks:
+        res = task(payload) if not isinstance(payload, tuple) else task(*payload)
+        results.append(res)
     return results
