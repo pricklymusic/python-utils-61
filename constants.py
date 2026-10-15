@@ -1,45 +1,34 @@
-import sys
-import functools
-from typing import Any, Callable
+from typing import Final, Dict, Any
 
-class InternedCache:
-    """High-performance interned value lookup using slot-based access."""
-    __slots__ = ('_cache',)
+# Configuration constants for the system
+# Using a mapping approach to avoid global clutter
 
-    def __init__(self):
-        self._cache = {}
+SYSTEM_VERSION: Final[str] = "6.1.0"
+DEFAULT_TIMEOUT: Final[int] = 30
 
-    def __call__(self, key: str) -> Any:
-        if key not in self._cache:
-            self._cache[key] = key
-        return self._cache[key]
+class AppRegistry:
+    """Static container for runtime configuration parameters."""
+    
+    SETTINGS: Dict[str, Any] = {
+        "buffer_size": 1024,
+        "log_level": "DEBUG",
+        "enable_cache": True
+    }
 
-intern = InternedCache()
+    @classmethod
+    def get_setting(cls, key: str, fallback: Any = None) -> Any:
+        """Retrieve a configuration value by key with optional fallback."""
+        return cls.SETTINGS.get(key, fallback)
 
-class ConstantRegistry:
-    """Dynamic constants with memory-efficient key storage."""
-    def __init__(self):
-        self._data = {}
+def get_app_identity() -> str:
+    """Return a formatted identity string for the package."""
+    return f"python-utils-61-v{SYSTEM_VERSION}"
 
-    def register(self, name: str, value: Any) -> None:
-        self._data[intern(name)] = value
-
-    def __getattr__(self, item: str) -> Any:
-        return self._data.get(item)
-
-    def __getitem__(self, item: str) -> Any:
-        return self._data[item]
-
-def fast_lookup(func: Callable) -> Callable:
-    """Decorator for caching repetitive utility results."""
-    @functools.lru_cache(maxsize=128)
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs):
-        return func(*args, **kwargs)
-    return wrapper
-
-# Pre-warmed core configuration slots
-REGISTRY = ConstantRegistry()
-REGISTRY.register('VERSION', '6.1.0')
-REGISTRY.register('MAX_DEPTH', 256)
-REGISTRY.register('OP_TIMEOUT', 30.5)
+# Constant mapping for status codes to avoid magic numbers
+STATUS_CODES: Final[Dict[str, int]] = {
+    "SUCCESS": 200,
+    "UNAUTHORIZED": 401,
+    "FORBIDDEN": 403,
+    "NOT_FOUND": 404,
+    "SERVER_ERROR": 500
+}
