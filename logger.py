@@ -1,33 +1,28 @@
 import logging
+import os
 from logging.handlers import RotatingFileHandler
-import sys
 
-def setup_logger(name='app_logger', log_file='app.log', level=logging.INFO):
+def get_logger(name: str = 'app_logger', log_file: str = 'app.log'):
     logger = logging.getLogger(name)
-    logger.setLevel(level)
+    logger.setLevel(logging.DEBUG)
     
-    formatter = logging.Formatter(
-        '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-    )
-
-    # Console handler for real-time observation
-    console = logging.StreamHandler(sys.stdout)
-    console.setFormatter(formatter)
-    logger.addHandler(console)
-
-    # Rotating file handler (5MB per file, keep 3 backups)
-    handler = RotatingFileHandler(
-        log_file, 
-        maxBytes=5*1024*1024, 
-        backupCount=3
-    )
-    handler.setFormatter(formatter)
-    logger.addHandler(handler)
-
+    if not logger.handlers:
+        formatter = logging.Formatter(
+            '%(asctime)s | %(levelname)-8s | %(name)s | %(message)s'
+        )
+        
+        file_handler = RotatingFileHandler(
+            log_file, 
+            maxBytes=1048576,
+            backupCount=5
+        )
+        file_handler.setFormatter(formatter)
+        logger.addHandler(file_handler)
+        
+        console_handler = logging.StreamHandler()
+        console_handler.setFormatter(formatter)
+        logger.addHandler(console_handler)
+        
     return logger
 
-# Instantiate shared logger as a singleton
-root_logger = setup_logger()
-
-def get_logger():
-    return root_logger
+log = get_logger()
