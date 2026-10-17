@@ -1,57 +1,57 @@
-"""Functional pipeline utility for chaining transformations with operator overloading."""
-
-from __future__ import annotations
-from typing import Callable, Generic, TypeVar, Any
-
-T = TypeVar("T")
-U = TypeVar("U")
+import inspect
+import weakref
+from typing import Any, Callable, Dict, List, Tuple
 
 
-class Pipe(Generic[T]):
-    """A wrapper enabling infix piping of functions using the right-shift operator (`>>`)."""
+class CleanPipeline:
+    """Dynamic pipeline rebuilder that cleans and reorganizes data streams."""
 
-    def __init__(self, value: T) -> None:
-        """Initialize the Pipe with a starting value.
+    def __init__(self) -> None:
+        self._stages: List[Tuple[str, Callable[[Any], Any]]] = []
+        self._cache: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
 
-        Args:
-            value: The data payload to encapsulate.
-        """
-        self.value: T = value
+    def register(self, name: str | None = None) -> Callable:
+        def decorator(func: Callable[[Any], Any]) -> Callable:
+            stage_name = name or func.__name__.strip("_")
+            self._stages.append((stage_name, func))
+            return func
 
-    def __rshift__(self, func: Callable[[T], U]) -> Pipe[U]:
-        """Apply a unary callable to the wrapped value and return a new Pipe.
+        return decorator
 
-        Args:
-            func: Callable accepting current value and returning a new value.
+    def sanitize_dict(self, data: Dict[Any, Any]) -> Dict[str, Any]:
+        """Deeply reorganizes nested dictionaries by stripping nulls and normalizing keys."""
+        cleaned = {}
+        for key, value in data.items():
+            if value is None or value == "":
+                continue
+            norm_key = str(key).lower().strip().replace("-", "_")
+            if isinstance(value, dict):
+                cleaned[norm_key] = self.sanitize_dict(value)
+            elif isinstance(value, (list, tuple)):
+                cleaned[norm_key] = [
+                    self.sanitize_dict(v) if isinstance(v, dict) else v
+                    for v in value
+                    if v is not None
+                ]
+            else:
+                cleaned[norm_key] = value
+        return cleaned
 
-        Returns:
-            Pipe[U]: A new Pipe wrapping the result of `func(self.value)`.
-        """
-        return Pipe(func(self.value))
+    def execute(self, payload: Any) -> Dict[str, Any]:
+        result = self.sanitize_dict(payload) if isinstance(payload, dict) else payload
+        audit_log = []
 
-    def unwrap(self) -> T:
-        """Extract the underlying value from the Pipe container.
+        for name, stage in self._stages:
+            sig = inspect.signature(stage)
+            if len(sig.parameters) == 1:
+                result = stage(result)
+            else:
+                result = stage(result, audit_log)
+            audit_log.append(f"executed:{name}")
 
-        Returns:
-            T: The final evaluated inner value.
-        """
-        return self.value
-
-    def __repr__(self) -> str:
-        """Return string representation of the Pipe container."""
-        return f"Pipe({repr(self.value)})"
+        return {"data": result, "meta": {"pipeline_steps": audit_log}}
 
 
-def tap(action: Callable[[T], Any]) -> Callable[[T], T]:
-    """Create a side-effect function for pipelines without modifying payload.
-
-    Args:
-        action: Callable invoked with current payload for side effects.
-
-    Returns:
-        Callable[[T], T]: A pass-through function executing `action`.
-    """
-    def _tap(val: T) -> T:
-        action(val)
-        return val
-    return _tap
+_global_pipe = CleanPipeline()
+register_step = _global_pipe.register
+run_pipeline = _global_pipe.execute
