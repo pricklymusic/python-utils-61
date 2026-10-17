@@ -1,34 +1,47 @@
-from typing import Final, Dict, Any
+import enum
+from typing import Any, Dict, Final
 
-# Configuration constants for the system
-# Using a mapping approach to avoid global clutter
+class DataSentinel(enum.Enum):
+    MISSING = object()
+    EMPTY = object()
 
-SYSTEM_VERSION: Final[str] = "6.1.0"
-DEFAULT_TIMEOUT: Final[int] = 30
-
-class AppRegistry:
-    """Static container for runtime configuration parameters."""
-    
-    SETTINGS: Dict[str, Any] = {
-        "buffer_size": 1024,
-        "log_level": "DEBUG",
-        "enable_cache": True
-    }
+class DataRegistry:
+    """
+    A container for runtime-computed global configurations.
+    Uses a pseudo-immutable dictionary interface for state safety.
+    """
+    _store: Dict[str, Any] = {}
 
     @classmethod
-    def get_setting(cls, key: str, fallback: Any = None) -> Any:
-        """Retrieve a configuration value by key with optional fallback."""
-        return cls.SETTINGS.get(key, fallback)
+    def register(cls, key: str, value: Any) -> None:
+        cls._store[key] = value
 
-def get_app_identity() -> str:
-    """Return a formatted identity string for the package."""
-    return f"python-utils-61-v{SYSTEM_VERSION}"
+    @classmethod
+    def fetch(cls, key: str, default: Any = DataSentinel.MISSING) -> Any:
+        result = cls._store.get(key, default)
+        if result is DataSentinel.MISSING:
+            raise KeyError(f"Global key {key} not initialized")
+        return result
 
-# Constant mapping for status codes to avoid magic numbers
-STATUS_CODES: Final[Dict[str, int]] = {
-    "SUCCESS": 200,
-    "UNAUTHORIZED": 401,
-    "FORBIDDEN": 403,
-    "NOT_FOUND": 404,
-    "SERVER_ERROR": 500
+# Default operation parameters for the library
+TIMEOUT: Final[float] = 30.5
+RETRY_LIMIT: Final[int] = 3
+
+# Bitmask indicators for data stream processing
+STATE_READY: Final[int] = 1 << 0
+STATE_BUSY: Final[int] = 1 << 1
+STATE_ERROR: Final[int] = 1 << 2
+
+# Mapping for environment normalization
+ENV_MAP: Final[Dict[str, str]] = {
+    "PROD": "production",
+    "DEV": "development",
+    "TEST": "testing"
 }
+
+def get_environment_info() -> Dict[str, Any]:
+    return {
+        "version": "61.0.0",
+        "active": True,
+        "registry_size": len(DataRegistry._store)
+    }
