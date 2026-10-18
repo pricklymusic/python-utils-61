@@ -1,13 +1,15 @@
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 # python-utils-61
 
-A comprehensive collection of production-ready Python utility functions designed to streamline daily development tasks. This library focuses on performance, type safety, and reducing boilerplate code in data processing and system automation projects.
+`python-utils-61` is a lightweight Python toolkit designed to streamline common data processing, file handling, and string manipulation tasks. It provides clean, zero-dependency helper functions to eliminate boilerplate code across everyday Python projects.
 
 ## Features
 
-*   **File System Helpers:** Simplified cross-platform path manipulation and bulk file operations with built-in error handling.
-*   **Data Transformation:** Efficient converters for nested dictionary flattening and complex data structure serialization.
-*   **Concurrency Wrapper:** A lightweight decorator-based approach to implementing thread-safe tasks and asynchronous retries.
-*   **Validation Suite:** High-performance string and object schema validators tailored for API request filtering.
+- **Safe File Operations**: Atomic JSON and text writing with automatic directory tree creation and error handling.
+- **Data Structure Helpers**: Efficient utilities to flatten nested dictionaries, chunk large iterables, and perform deep dictionary merges.
+- **String Transformations**: Fast converters for case formats (snake_case, camelCase, PascalCase) and robust slug generation.
+- **Execution Profiling**: Simple decorators to measure function execution time and memory footprint during development.
 
 ## Installation
 
@@ -17,33 +19,43 @@ Install the package directly from PyPI:
 pip install python-utils-61
 ```
 
-If you prefer to install from source:
+Or install the latest development version directly from GitHub:
 
 ```bash
-git clone https://github.com/Developer/python-utils-61.git
-cd python-utils-61
-pip install .
+pip install git+https://github.com/Developer/python-utils-61.git
 ```
 
-## Usage
-
-Easily integrate common utility patterns into your application workflow:
+## Quick Start
 
 ```python
-from pyutils61 import file_ops, data_utils
+from python_utils_61.dict_utils import flatten_dict
+from python_utils_61.file_utils import safe_write_json
+from python_utils_61.timing import time_it
 
-# Flatten a complex nested JSON structure
-nested_data = {"user": {"id": 1, "meta": {"login": "admin"}}}
-flat_data = data_utils.flatten_dict(nested_data)
+@time_it
+def main():
+    nested_payload = {
+        "user": {
+            "id": 42,
+            "preferences": {
+                "theme": "dark",
+                "notifications": True
+            }
+        }
+    }
 
-# Safely create a directory tree with recursive permissions
-file_ops.ensure_dir("/tmp/project/logs", mode=0o755)
+    # Flatten nested structures using dot notation
+    flat = flatten_dict(nested_payload)
+    print(flat)
+    # Output: {'user.id': 42, 'user.preferences.theme': 'dark', 'user.preferences.notifications': True}
 
-print(f"Flattened keys: {list(flat_data.keys())}")
+    # Safely write data to a file, creating missing subdirectories automatically
+    safe_write_json("output/user_config.json", flat, indent=2)
+
+if __name__ == "__main__":
+    main()
 ```
 
 ## License
-
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 Distributed under the MIT License. See `LICENSE` for more information.
