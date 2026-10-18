@@ -1,32 +1,32 @@
-import functools
-from typing import Any, Callable, Dict, List
+import json
+import os
+from typing import Any, Dict
 
-def sanitize_input(schema: Dict[str, type]):
-    def decorator(func: Callable):
-        @functools.wraps(func)
-        def wrapper(data: Any, *args, **kwargs):
-            if not isinstance(data, dict):
-                raise TypeError(f"Payload must be a dict, got {type(data).__name__}")
-            
-            validated = {}
-            for key, expected_type in schema.items():
-                val = data.get(key)
-                if not isinstance(val, expected_type):
-                    raise ValueError(f"Key '{key}' expected {expected_type.__name__}, got {type(val).__name__}")
-                validated[key] = val
-            return func(validated, *args, **kwargs)
-        return wrapper
-    return decorator
+class ConfigLoader:
+    """Dynamic configuration loader with recursive default merging."""
+    def __init__(self, defaults: Dict[str, Any] = None):
+        self._config = defaults or {}
 
-@sanitize_input({'id': int, 'payload': str})
-def process_stream(data: Dict[str, Any]) -> str:
-    return f"Processed {data['id']}: {data['payload'].upper()}"
+    def load(self, path: str) -> 'ConfigLoader':
+        if os.path.exists(path):
+            with open(path, 'r') as f:
+                file_data = json.load(f)
+                self._deep_merge(self._config, file_data)
+        return self
 
-def run_processing_loop(data_list: List[Dict[str, Any]]):
-    results = []
-    for item in data_list:
-        try:
-            results.append(process_stream(item))
-        except (TypeError, ValueError) as e:
-            results.append(f"Skipping invalid entry: {e}")
-    return results
+    def _deep_merge(self, base: Dict, update: Dict) -> None:
+        for key, value in update.items():
+            if isinstance(value, dict) and key in base and isinstance(base[key], dict):
+                self._deep_merge(base[key], value)
+            else:
+                base[key] = value
+
+    def get(self, key: str, default: Any = None) -> Any:
+        return self._config.get(key, default)
+
+    def __getattr__(self, name: str) -> Any:
+        return self._config.get(name)
+
+def load_config(path: str, defaults: Dict = None) -> ConfigLoader:
+    loader = ConfigLoader(defaults)
+    return loader.load(path)
