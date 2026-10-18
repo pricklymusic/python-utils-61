@@ -1,38 +1,47 @@
-import functools
-import sys
-import logging
+import time
+from functools import wraps, lru_cache
+from typing import Callable, Any, List
 
-class ResilienceEngine:
-    """A decorative shield against the chaos of unexpected state."""
-    def __init__(self, fallback_value=None):
-        self.fallback = fallback_value
+class AdaptiveMemoizer:
+    """Performance optimizer that dynamically enables caching based on execution latency."""
+    
+    def __init__(self, sample_size: int = 10, latency_threshold_ms: float = 0.5):
+        self.sample_size = sample_size
+        self.threshold = latency_threshold_ms / 1000.0
 
-    def __call__(self, func):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            try:
-                return func(*args, **kwargs)
-            except (ValueError, TypeError, ZeroDivisionError) as e:
-                logging.error(f"caught {type(e).__name__} in {func.__name__}")
-                return self.fallback
-            except Exception:
-                # Escalation to emergency bypass for unknown failure modes
-                return None
-        return wrapper
+    def __call__(self, func: Callable) -> Callable:
+        cached_variant = lru_cache(maxsize=2048)(func)
+        samples: List[float] = []
+        
+        @wraps(func)
+        def adaptive_wrapper(*args: Any, **kwargs: Any) -> Any:
+            if getattr(adaptive_wrapper, "_is_hot", False):
+                return cached_variant(*args, **kwargs)
 
-@ResilienceEngine(fallback_value=0)
-def safe_divide(a, b):
-    return float(a) / b
+            if len(samples) < self.sample_size:
+                start = time.perf_counter()
+                res = func(*args, **kwargs)
+                samples.append(time.perf_counter() - start)
+                return res
 
-@ResilienceEngine(fallback_value="<corrupt>")
-def parse_raw_data(data):
-    if not isinstance(data, str):
-        raise TypeError("Expected string input")
-    return data.strip().upper()
+            avg_latency = sum(samples) / len(samples)
+            if avg_latency > self.threshold:
+                setattr(adaptive_wrapper, "_is_hot", True)
+                return cached_variant(*args, **kwargs)
+            
+            return func(*args, **kwargs)
 
-def execute_pipeline(tasks):
-    results = []
-    for task, payload in tasks:
-        res = task(payload) if not isinstance(payload, tuple) else task(*payload)
-        results.append(res)
-    return results
+        def clear_stats():
+            samples.clear()
+            setattr(adaptive_wrapper, "_is_hot", False)
+            cached_variant.cache_clear()
+
+        adaptive_wrapper.clear_stats = clear_stats
+        adaptive_wrapper._is_hot = False
+        return adaptive_wrapper
+
+
+def batch_process_optimized(items: List[Any], processor_func: Callable) -> List[Any]:
+    """High-throughput batch utility leveraging adaptive execution path optimization."""
+    memoized = AdaptiveMemoizer(sample_size=5, latency_threshold_ms=0.1)(processor_func)
+    return [memoized(item) for item in items]
