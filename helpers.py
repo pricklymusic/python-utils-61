@@ -1,32 +1,41 @@
-import json
-import os
-from typing import Any, Dict
+from typing import Any, Callable, Dict, List, TypeVar, Union
 
-class ConfigLoader:
-    """Dynamic configuration loader with recursive default merging."""
-    def __init__(self, defaults: Dict[str, Any] = None):
-        self._config = defaults or {}
+T = TypeVar('T')
 
-    def load(self, path: str) -> 'ConfigLoader':
-        if os.path.exists(path):
-            with open(path, 'r') as f:
-                file_data = json.load(f)
-                self._deep_merge(self._config, file_data)
-        return self
+def deep_flatten(items: Union[List[Any], tuple]) -> List[Any]:
+    """
+    recursive flattening of nested iterables using a generator-backed list comprehension.
+    
+    :param items: nested list or tuple structure
+    :return: flat list of elements
+    """
+    def gen(current: Any):
+        if isinstance(current, (list, tuple)):
+            for i in current:
+                yield from gen(i)
+        else:
+            yield current
+    return list(gen(items))
 
-    def _deep_merge(self, base: Dict, update: Dict) -> None:
-        for key, value in update.items():
-            if isinstance(value, dict) and key in base and isinstance(base[key], dict):
-                self._deep_merge(base[key], value)
-            else:
-                base[key] = value
+def apply_pipe(value: T, functions: List[Callable[[Any], Any]]) -> Any:
+    """
+    serial execution of a list of functions on a single input value.
+    
+    :param value: starting input
+    :param functions: sequence of callables
+    :return: transformed output
+    """
+    accumulator: Any = value
+    for func in functions:
+        accumulator = func(accumulator)
+    return accumulator
 
-    def get(self, key: str, default: Any = None) -> Any:
-        return self._config.get(key, default)
-
-    def __getattr__(self, name: str) -> Any:
-        return self._config.get(name)
-
-def load_config(path: str, defaults: Dict = None) -> ConfigLoader:
-    loader = ConfigLoader(defaults)
-    return loader.load(path)
+def batch_process(data: List[T], size: int) -> List[List[T]]:
+    """
+    chunking of data into segments of fixed length.
+    
+    :param data: list of items
+    :param size: integer batch size
+    :return: list of chunks
+    """
+    return [data[i:i + size] for i in range(0, len(data), size)]
