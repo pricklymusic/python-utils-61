@@ -1,47 +1,62 @@
-import time
-from functools import wraps, lru_cache
-from typing import Callable, Any, List
+import math
+import sys
+import functools
+from typing import Any, Callable, TypeVar, Tuple, Dict
 
-class AdaptiveMemoizer:
-    """Performance optimizer that dynamically enables caching based on execution latency."""
+T = TypeVar('T')
+
+class EdgeCaseRegistry:
+    """Registry mapping exceptions to fallback transformers for edge case recovery."""
     
-    def __init__(self, sample_size: int = 10, latency_threshold_ms: float = 0.5):
-        self.sample_size = sample_size
-        self.threshold = latency_threshold_ms / 1000.0
+    def __init__(self, default_fallback: Any = None):
+        self._handlers: Dict[type, Callable[[BaseException, Tuple[Any, ...]], Any]] = {}
+        self.default_fallback = default_fallback
 
-    def __call__(self, func: Callable) -> Callable:
-        cached_variant = lru_cache(maxsize=2048)(func)
-        samples: List[float] = []
-        
-        @wraps(func)
-        def adaptive_wrapper(*args: Any, **kwargs: Any) -> Any:
-            if getattr(adaptive_wrapper, "_is_hot", False):
-                return cached_variant(*args, **kwargs)
+    def register(self, *exc_types: type):
+        def decorator(fn: Callable):
+            for exc in exc_types:
+                self._handlers[exc] = fn
+            return fn
+        return decorator
 
-            if len(samples) < self.sample_size:
-                start = time.perf_counter()
+    def resolve(self, exc: BaseException, *args: Any) -> Any:
+        for exc_type, handler in self._handlers.items():
+            if isinstance(exc, exc_type):
+                return handler(exc, *args)
+        if callable(self.default_fallback):
+            return self.default_fallback(*args)
+        return self.default_fallback
+
+
+def safe_evaluator(registry: EdgeCaseRegistry):
+    """Decorator wrapping functions with edge-case interception logic."""
+    def decorator(func: Callable[..., T]) -> Callable[..., T]:
+        @functools.wraps(func)
+        def wrapper(*args: Any, **kwargs: Any) -> T:
+            try:
                 res = func(*args, **kwargs)
-                samples.append(time.perf_counter() - start)
+                if isinstance(res, float) and (math.isnan(res) or math.isinf(res)):
+                    raise ValueError(f"Unstable numerical result detected: {res}")
                 return res
-
-            avg_latency = sum(samples) / len(samples)
-            if avg_latency > self.threshold:
-                setattr(adaptive_wrapper, "_is_hot", True)
-                return cached_variant(*args, **kwargs)
-            
-            return func(*args, **kwargs)
-
-        def clear_stats():
-            samples.clear()
-            setattr(adaptive_wrapper, "_is_hot", False)
-            cached_variant.cache_clear()
-
-        adaptive_wrapper.clear_stats = clear_stats
-        adaptive_wrapper._is_hot = False
-        return adaptive_wrapper
+            except Exception as err:
+                return registry.resolve(err, *args)
+        return wrapper
+    return decorator
 
 
-def batch_process_optimized(items: List[Any], processor_func: Callable) -> List[Any]:
-    """High-throughput batch utility leveraging adaptive execution path optimization."""
-    memoized = AdaptiveMemoizer(sample_size=5, latency_threshold_ms=0.1)(processor_func)
-    return [memoized(item) for item in items]
+resilient_dispatcher = EdgeCaseRegistry(default_fallback=lambda *a: None)
+
+@resilient_dispatcher.register(ZeroDivisionError, OverflowError)
+def _handle_math_edge_cases(exc: Exception, *args: Any) -> float:
+    return float('inf') if isinstance(exc, OverflowError) else 0.0
+
+@resilient_dispatcher.register(RecursionError)
+def _handle_recursion_edge_cases(exc: Exception, *args: Any) -> Any:
+    sys.setrecursionlimit(min(sys.getrecursionlimit() * 2, 5000))
+    return args[0] if args else None
+
+@resilient_dispatcher.register(TypeError, ValueError)
+def _handle_type_edge_cases(exc: Exception, *args: Any) -> Any:
+    if args and hasattr(args[0], '__str__'):
+        return str(args[0])
+    return f"recovered_from_{type(exc).__name__}"
