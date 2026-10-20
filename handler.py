@@ -1,50 +1,49 @@
-from dataclasses import dataclass, field
-from typing import Callable, Dict, Any, List, Optional
 import functools
+import time
+import itertools
+from typing import Any, Callable, Iterable, TypeVar
 
+T = TypeVar('T')
 
-@dataclass
-class HandlerPipeline:
-    """A modular task handling pipeline using dynamic function wrapping."""
-    registry: Dict[str, List[Callable[..., Any]]] = field(default_factory=dict)
-    middleware: List[Callable[..., Any]] = field(default_factory=list)
+def compose(*funcs: Callable) -> Callable:
+    return lambda x: functools.reduce(lambda v, f: f(v), funcs, x)
 
-    def register(self, event_type: str):
-        """Decorator to register a handler for a specific event."""
-        def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
-            self.registry.setdefault(event_type, []).append(func)
-            return func
-        return decorator
+def memoize_with_expiry(seconds: int) -> Callable:
+    def decorator(func: Callable) -> Callable:
+        cache = {}
+        @functools.wraps(func)
+        def wrapper(*args: Any) -> Any:
+            now = time.time()
+            if args in cache and now - cache[args]['time'] < seconds:
+                return cache[args]['value']
+            result = func(*args)
+            cache[args] = {'value': result, 'time': now}
+            return result
+        return wrapper
+    return decorator
 
-    def use(self, middleware_fn: Callable[..., Any]) -> None:
-        """Attach global middleware processing logic."""
-        self.middleware.append(middleware_fn)
-
-    def dispatch(self, event_type: str, data: Any) -> List[Any]:
-        """Dispatches event through middleware stack to registered handlers."""
-        processed_data = data
-        for mw in self.middleware:
-            processed_data = mw(event_type, processed_data)
-
-        handlers = self.registry.get(event_type, [])
-        if not handlers:
-            return []
-
-        results = []
-        for handler in handlers:
-            res = handler(processed_data)
-            results.append(res)
-        return results
-
-    def purge(self, event_type: Optional[str] = None) -> None:
-        """Clean up dynamic handler registry allocations."""
-        if event_type:
-            self.registry.pop(event_type, None)
+def flatten(nested: Iterable[Any]) -> Iterable[Any]:
+    for item in nested:
+        if isinstance(item, (list, tuple)):
+            yield from flatten(item)
         else:
-            self.registry.clear()
-            self.middleware.clear()
+            yield item
 
+def batch(iterable: Iterable[T], size: int) -> Iterable[tuple[T, ...]]:
+    it = iter(iterable)
+    while chunk := tuple(itertools.islice(it, size)):
+        yield chunk
 
-def create_pipeline() -> HandlerPipeline:
-    """Factory method for isolated pipeline instances."""
-    return HandlerPipeline()
+def retry(attempts: int, delay: float) -> Callable:
+    def decorator(func: Callable) -> Callable:
+        @functools.wraps(func)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            for i in range(attempts):
+                try:
+                    return func(*args, **kwargs)
+                except Exception:
+                    if i == attempts - 1:
+                        raise
+                    time.sleep(delay)
+        return wrapper
+    return decorator
