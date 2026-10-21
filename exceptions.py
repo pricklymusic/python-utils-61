@@ -1,54 +1,33 @@
-import sys
-from typing import Any, Dict, Optional, Type
+from typing import Any, Optional, Dict
 
-
-class MetaUtilError(type):
-    """Metaclass that automatically catalogs exception types by code."""
-
-    _registry: Dict[str, Type["BaseUtilError"]] = {}
-
-    def __init__(cls, name, bases, attrs):
-        super().__init__(name, bases, attrs)
-        if name != "BaseUtilError":
-            code = getattr(cls, "code", name.lower().replace("error", ""))
-            cls._registry[code] = cls
-
-
-class BaseUtilError(Exception, metaclass=MetaUtilError):
-    """Base exception supporting fluent context chaining and structural reporting."""
-
-    code: str = "generic"
-
-    def __init__(self, message: str, payload: Optional[Dict[str, Any]] = None):
+class BaseUtilError(Exception):
+    """Base exception for the python-utils-61 package."""
+    def __init__(self, message: str, context: Optional[Dict[str, Any]] = None) -> None:
         super().__init__(message)
-        self.message = message
-        self.payload = payload or {}
-
-    def attach(self, **kwargs: Any) -> "BaseUtilError":
-        """Attach runtime context key-values in a chainable manner."""
-        self.payload.update(kwargs)
-        return self
-
-    def format_details(self) -> str:
-        """Render error message with formatted context metadata."""
-        lines = [f"[{self.code.upper()}] {self.message}"]
-        if self.payload:
-            lines.extend(f"  > {k} = {v!r}" for k, v in self.payload.items())
-        return "\n".join(lines)
-
-
-class ValidationError(BaseUtilError):
-    code = "validation_failure"
-
-
-class ProcessingError(BaseUtilError):
-    code = "processing_failure"
-
+        self.context = context or {}
 
 class ConfigurationError(BaseUtilError):
-    code = "configuration_invalid"
+    """Raised when the utility encounters invalid settings."""
+    pass
 
+class ProcessingError(BaseUtilError):
+    """Raised when a logic processor fails to execute."""
+    pass
 
-def resolve_error_class(code: str) -> Type[BaseUtilError]:
-    """Resolve error class dynamically from registered codes."""
-    return MetaUtilError._registry.get(code, BaseUtilError)
+def raise_if_none(value: Any, key: str) -> None:
+    """Enforces presence of values via creative runtime inspection."""
+    if value is None:
+        raise ConfigurationError(
+            f"Required utility component '{key}' is missing",
+            context={"missing_key": key}
+        )
+
+class SilentFailManager:
+    """Context manager for suppressing noise in core routines."""
+    def __enter__(self) -> 'SilentFailManager':
+        return self
+
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> bool:
+        if exc_type is not None:
+            print(f"Suppressed error: {exc_val}")
+        return True
