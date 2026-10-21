@@ -1,62 +1,44 @@
-import math
-import sys
 import functools
-from typing import Any, Callable, TypeVar, Tuple, Dict
+import itertools
+import time
+from typing import Callable, Any
 
-T = TypeVar('T')
+def compose(*functions: Callable) -> Callable:
+    return lambda x: functools.reduce(lambda v, f: f(v), functions, x)
 
-class EdgeCaseRegistry:
-    """Registry mapping exceptions to fallback transformers for edge case recovery."""
-    
-    def __init__(self, default_fallback: Any = None):
-        self._handlers: Dict[type, Callable[[BaseException, Tuple[Any, ...]], Any]] = {}
-        self.default_fallback = default_fallback
-
-    def register(self, *exc_types: type):
-        def decorator(fn: Callable):
-            for exc in exc_types:
-                self._handlers[exc] = fn
-            return fn
-        return decorator
-
-    def resolve(self, exc: BaseException, *args: Any) -> Any:
-        for exc_type, handler in self._handlers.items():
-            if isinstance(exc, exc_type):
-                return handler(exc, *args)
-        if callable(self.default_fallback):
-            return self.default_fallback(*args)
-        return self.default_fallback
-
-
-def safe_evaluator(registry: EdgeCaseRegistry):
-    """Decorator wrapping functions with edge-case interception logic."""
-    def decorator(func: Callable[..., T]) -> Callable[..., T]:
+def memoize_with_expiry(ttl: int = 60):
+    def decorator(func):
+        cache = {}
         @functools.wraps(func)
-        def wrapper(*args: Any, **kwargs: Any) -> T:
-            try:
-                res = func(*args, **kwargs)
-                if isinstance(res, float) and (math.isnan(res) or math.isinf(res)):
-                    raise ValueError(f"Unstable numerical result detected: {res}")
-                return res
-            except Exception as err:
-                return registry.resolve(err, *args)
+        def wrapper(*args, **kwargs):
+            key = (args, frozenset(kwargs.items()))
+            now = time.time()
+            if key in cache:
+                result, timestamp = cache[key]
+                if now - timestamp < ttl:
+                    return result
+            result = func(*args, **kwargs)
+            cache[key] = (result, now)
+            return result
         return wrapper
     return decorator
 
+def chunker(iterable: Any, size: int):
+    it = iter(iterable)
+    return iter(lambda: tuple(itertools.islice(it, size)), ())
 
-resilient_dispatcher = EdgeCaseRegistry(default_fallback=lambda *a: None)
+def flatten(nested: list) -> list:
+    return [item for sublist in nested for item in sublist]
 
-@resilient_dispatcher.register(ZeroDivisionError, OverflowError)
-def _handle_math_edge_cases(exc: Exception, *args: Any) -> float:
-    return float('inf') if isinstance(exc, OverflowError) else 0.0
-
-@resilient_dispatcher.register(RecursionError)
-def _handle_recursion_edge_cases(exc: Exception, *args: Any) -> Any:
-    sys.setrecursionlimit(min(sys.getrecursionlimit() * 2, 5000))
-    return args[0] if args else None
-
-@resilient_dispatcher.register(TypeError, ValueError)
-def _handle_type_edge_cases(exc: Exception, *args: Any) -> Any:
-    if args and hasattr(args[0], '__str__'):
-        return str(args[0])
-    return f"recovered_from_{type(exc).__name__}"
+def retry(attempts: int = 3, delay: float = 1.0):
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            for i in range(attempts):
+                try:
+                    return func(*args, **kwargs)
+                except Exception:
+                    if i == attempts - 1: raise
+                    time.sleep(delay)
+        return wrapper
+    return decorator
