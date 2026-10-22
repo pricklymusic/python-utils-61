@@ -1,36 +1,28 @@
-from typing import Any, Callable, Dict, List, Optional
+import re
+from typing import Any, Callable
 
-class ValidatorRegistry:
-    def __init__(self) -> None:
-        self._rules: Dict[str, List[Callable[[Any], bool]]] = {}
+def validate_schema(data: dict, schema: dict) -> bool:
+    """schema validation via key presence and type match"""
+    return all(key in data and isinstance(data[key], expected_type) for key, expected_type in schema.items())
 
-    def register(self, key: str, func: Callable[[Any], bool]) -> None:
-        if key not in self._rules:
-            self._rules[key] = []
-        self._rules[key].append(func)
+def sanitize_string(text: Any, pattern: str = r'[^a-zA-Z0-9]') -> str:
+    """regex-based aggressive string cleaning"""
+    return re.sub(pattern, '', str(text))
 
-    def validate(self, key: str, value: Any) -> bool:
-        rules = self._rules.get(key, [])
-        return all(rule(value) for rule in rules) if rules else True
+def identity_check(data: Any, check_func: Callable[[Any], bool]) -> bool:
+    """functional wrapper for generic predicate checks"""
+    try:
+        return check_func(data)
+    except Exception:
+        return False
 
-    def __call__(self, key: str) -> Callable[[Callable[[Any], bool]], Callable[[Any], bool]]:
-        def decorator(func: Callable[[Any], bool]) -> Callable[[Any], bool]:
-            self.register(key, func)
-            return func
-        return decorator
+def chunk_validator(data: list, size: int) -> bool:
+    """memory-efficient check for non-empty balanced segments"""
+    if not data or size <= 0:
+        return False
+    return len(data) % size == 0
 
-validate_engine = ValidatorRegistry()
-
-@validate_engine('email')
-def _is_email(val: Any) -> bool:
-    return isinstance(val, str) and '@' in val and '.' in val
-
-@validate_engine('non_empty')
-def _is_non_empty(val: Any) -> bool:
-    return bool(val) and len(str(val)) > 0
-
-def check_structure(data: Dict[str, Any], schema: Dict[str, str]) -> bool:
-    for key, rule_name in schema.items():
-        if not validate_engine.validate(rule_name, data.get(key)):
-            return False
-    return True
+def domain_validator(email: str) -> bool:
+    """domain structure validation using split logic"""
+    parts = email.split('@')
+    return len(parts) == 2 and '.' in parts[1]
