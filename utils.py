@@ -1,27 +1,31 @@
 import time
 import functools
-import random
+from typing import Callable, Any
 
-def retry_operation(max_attempts=3, base_delay=1.0, exceptions=(Exception,)):
-    def decorator(func):
+def retry(attempts: int = 3, delay: float = 1.0, backoff: float = 2.0):
+    def decorator(func: Callable):
         @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            attempts = 0
-            while attempts < max_attempts:
+        def wrapper(*args, **kwargs) -> Any:
+            current_delay = delay
+            for i in range(attempts):
                 try:
                     return func(*args, **kwargs)
-                except exceptions as e:
-                    attempts += 1
-                    if attempts == max_attempts:
+                except Exception as e:
+                    if i == attempts - 1:
                         raise e
-                    sleep_time = base_delay * (2 ** (attempts - 1)) + random.uniform(0, 0.1)
-                    time.sleep(sleep_time)
+                    time.sleep(current_delay)
+                    current_delay *= backoff
         return wrapper
     return decorator
 
-@retry_operation(max_attempts=3, base_delay=0.5)
-def fetch_data(url):
-    # Simulate volatile network operation
-    if random.random() < 0.7:
-        raise ConnectionError("Network flicker detected")
-    return f"Payload from {url}"
+def resilient_network_call(func: Callable):
+    """
+    A factory approach for wrapping network operations
+    that require exponential backoff strategy.
+    """
+    return retry(attempts=5, delay=0.5)(func)
+
+# Example usage:
+# @resilient_network_call
+# def fetch_data(url):
+#     pass
