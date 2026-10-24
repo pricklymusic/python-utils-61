@@ -1,48 +1,42 @@
-from typing import Callable, TypeVar, Generic, Any, ParamSpec
-from functools import reduce, wraps
+import functools
+import logging
+from typing import Callable, Any, Dict
 
-T = TypeVar("T")
-R = TypeVar("R")
-P = ParamSpec("P")
+logger = logging.getLogger(__name__)
 
-class MorphicPipeline(Generic[T]):
-    """A fluid data-transformation tube that shuttles values through callable stages.
+class Registry:
+    _storage: Dict[str, Any] = {}
 
-    Permits unconventional function chaining via bitwise OR operators (`|`) or
-    direct execution calls.
-    """
+    @classmethod
+    def register(cls, key: str):
+        def decorator(func: Callable):
+            cls._storage[key] = func
+            return func
+        return decorator
 
-    def __init__(self, value: T) -> None:
-        """Initialize the pipeline with a seed payload."""
-        self._value: T = value
+    @classmethod
+    def execute(cls, key: str, *args, **kwargs):
+        if key not in cls._storage:
+            raise ValueError(f'key {key} not found')
+        return cls._storage[key](*args, **kwargs)
 
-    def into(self, fn: Callable[[T], R]) -> "MorphicPipeline[R]":
-        """Feed the current value into a single-arity function, yielding a new pipeline state."""
-        return MorphicPipeline(fn(self._value))
+def memoize_with_expiry(ttl: int = 300):
+    def decorator(func: Callable):
+        cache = {}
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            key = (args, frozenset(kwargs.items()))
+            if key in cache:
+                return cache[key]
+            result = func(*args, **kwargs)
+            cache[key] = result
+            return result
+        return wrapper
+    return decorator
 
-    def flow(self, *steps: Callable[[Any], Any]) -> "MorphicPipeline[Any]":
-        """Pass payload sequentially through an array of transformations."""
-        result = reduce(lambda val, func: func(val), steps, self._value)
-        return MorphicPipeline(result)
+def batch_process(items: list, chunk_size: int = 10):
+    for i in range(0, len(items), chunk_size):
+        yield items[i:i + chunk_size]
 
-    def unwrap(self) -> T:
-        """Extract the encapsulated payload from the pipeline state."""
-        return self._value
-
-    def __or__(self, fn: Callable[[T], R]) -> "MorphicPipeline[R]":
-        """Syntactic sugar enabling pipeline pipe syntax."""
-        return self.into(fn)
-
-    def __repr__(self) -> str:
-        """Return a textual representation of the pipeline wrapper."""
-        return f"<MorphicPipeline(payload={repr(self._value)})>"
-
-
-def morphic_stage(fn: Callable[P, R]) -> Callable[P, R]:
-    """Decorator that tags and standardizes transformation functions for pipelines."""
-    @wraps(fn)
-    def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
-        return fn(*args, **kwargs)
-    
-    setattr(wrapper, "__is_morphic__", True)
-    return wrapper
+def sanitize_input(data: str) -> str:
+    return ''.join(char for char in data if char.isalnum() or char.isspace()).strip()
