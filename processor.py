@@ -1,34 +1,31 @@
-import functools
-import itertools
-from typing import Callable, Any, Iterable
+import logging
+from typing import Any, Callable, Dict
 
-def chain_execute(data: Any, *functions: Callable) -> Any:
-    """Sequentially pipe data through a sequence of callables."""
-    return functools.reduce(lambda acc, f: f(acc), functions, data)
+class DataProcessor:
+    def __init__(self, schema: Dict[str, type]):
+        self.schema = schema
+        self.logger = logging.getLogger(__name__)
 
-def partition_stream(predicate: Callable, stream: Iterable) -> tuple:
-    """Split an iterable into two based on predicate truthiness."""
-    true_list, false_list = [], []
-    for item in stream:
-        (true_list if predicate(item) else false_list).append(item)
-    return true_list, false_list
+    def validate(self, item: Any) -> bool:
+        if not isinstance(item, dict):
+            return False
+        return all(k in item and isinstance(item[k], t) for k, t in self.schema.items())
 
-def batch_process(iterable: Iterable, size: int) -> Iterable:
-    """Slice an iterable into chunks of fixed size."""
-    it = iter(iterable)
-    return iter(lambda: list(itertools.islice(it, size)), [])
+    def process_stream(self, data_source: Iterable[Any], callback: Callable[[Any], None]) -> None:
+        for entry in data_source:
+            try:
+                if not self.validate(entry):
+                    self.logger.warning(f"Validation failure: {entry}")
+                    continue
+                
+                callback(entry)
+            except Exception as e:
+                self.logger.error(f"Unexpected corruption during processing: {e}")
 
-def memoize_method(func: Callable) -> Callable:
-    """Method-level caching using attribute-bound storage."""
-    cache = {}
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs):
-        key = (args, frozenset(kwargs.items()))
-        if key not in cache:
-            cache[key] = func(*args, **kwargs)
-        return cache[key]
-    return wrapper
+def run_pipeline(items):
+    processor = DataProcessor({"id": int, "payload": str})
+    processor.process_stream(items, lambda x: print(f"Processing: {x}"))
 
-def safe_get(data: dict, keys: str, default: Any = None) -> Any:
-    """Deep navigation of nested dictionary structures."""
-    return functools.reduce(lambda d, k: d.get(k, {}) if isinstance(d, dict) else default, keys.split('.'), data) or default
+if __name__ == "__main__":
+    data = [{"id": 1, "payload": "test"}, "invalid_string", {"id": 2}] 
+    run_pipeline(data)
