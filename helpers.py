@@ -1,39 +1,35 @@
 import functools
-import time
-from typing import Callable, Any, Dict
+from typing import Any, Callable, Dict, List, Union
 
-def retry(retries: int = 3, delay: float = 1.0):
-    def decorator(func: Callable):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            last_ex = None
-            for _ in range(retries):
-                try:
-                    return func(*args, **kwargs)
-                except Exception as e:
-                    last_ex = e
-                    time.sleep(delay)
-            raise last_ex
-        return wrapper
-    return decorator
+def morph_data(data: Any, schema: Dict[str, Callable]) -> Dict[str, Any]:
+    """Transforms dict values using registered schema functions."""
+    if not isinstance(data, dict):
+        return {}
+    return {k: schema.get(k, lambda x: x)(v) for k, v in data.items()}
 
-def flatten(nested_list: list) -> list:
-    flat = []
-    for item in nested_list:
-        if isinstance(item, list):
-            flat.extend(flatten(item))
-        else:
-            flat.append(item)
-    return flat
+def deep_freeze(obj: Any) -> Any:
+    """Recursively converts mutable iterables to immutable tuples."""
+    if isinstance(obj, list):
+        return tuple(deep_freeze(i) for i in obj)
+    if isinstance(obj, dict):
+        return frozenset((k, deep_freeze(v)) for k, v in obj.items())
+    return obj
 
-def compose(*functions: Callable) -> Callable:
-    return lambda x: functools.reduce(lambda v, f: f(v), functions, x)
+def compose_pipeline(*functions: Callable) -> Callable:
+    """Right-to-left function composition chain."""
+    return functools.reduce(lambda f, g: lambda x: f(g(x)), functions, lambda x: x)
 
-def memoize(func: Callable) -> Callable:
-    cache: Dict[Any, Any] = {}
-    @functools.wraps(func)
-    def wrapper(*args):
-        if args not in cache:
-            cache[args] = func(*args)
-        return cache[args]
-    return wrapper
+def pluck_nested(data: Dict, path: List[str], default: Any = None) -> Any:
+    """Dot-notation navigation through nested dictionaries."""
+    try:
+        return functools.reduce(lambda d, key: d.get(key, {}), path, data) or default
+    except AttributeError:
+        return default
+
+class DataProxy:
+    """Attribute-based access for dictionary payloads."""
+    def __init__(self, data: Dict):
+        self.__dict__.update(data)
+
+    def __repr__(self):
+        return f"DataProxy({self.__dict__})"
