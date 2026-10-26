@@ -1,49 +1,28 @@
 import json
 import os
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
-class ConfigProxy:
-    """Dynamic cascading configuration loader with environment and file fallback."""
-    def __init__(self, defaults: Dict[str, Any], env_prefix: str = "APP_"):
-        self._defaults = defaults
-        self._prefix = env_prefix
-        self._overrides: Dict[str, Any] = {}
+class ConfigLoader:
+    def __init__(self, defaults: Dict[str, Any]):
+        self._data = defaults
 
-    def load_json(self, filepath: str) -> "ConfigProxy":
-        if os.path.exists(filepath):
-            with open(filepath, "r", encoding="utf-8") as f:
-                self._overrides.update(json.load(f))
+    def load(self, path: str) -> 'ConfigLoader':
+        if os.path.exists(path):
+            with open(path, 'r') as f:
+                loaded = json.load(f)
+                self._data.update({k: v for k, v in loaded.items() if k in self._data})
         return self
 
-    def _env_lookup(self, key: str) -> Optional[str]:
-        return os.environ.get(f"{self._prefix}{key.upper()}")
-
-    def get(self, key: str, default: Any = None) -> Any:
-        if key in self._overrides:
-            return self._overrides[key]
-        env_val = self._env_lookup(key)
-        if env_val is not None:
-            if env_val.lower() in ("true", "false"):
-                return env_val.lower() == "true"
-            for cast in (int, float):
-                try:
-                    return cast(env_val)
-                except ValueError:
-                    pass
-            return env_val
-        return self._defaults.get(key, default)
+    def get(self, key: str, fallback: Any = None) -> Any:
+        return self._data.get(key, fallback)
 
     def __getattr__(self, name: str) -> Any:
-        if name.startswith("_"):
-            raise AttributeError(f"Invalid access {name}")
-        val = self.get(name)
-        if val is None and name not in self._defaults:
-            raise AttributeError(f"Configuration key '{name}' not found")
-        return val
+        if name in self._data:
+            return self._data[name]
+        raise AttributeError(f'Configuration key {name} not found')
 
-    def __getitem__(self, item: str) -> Any:
-        return self.get(item)
+    def __repr__(self) -> str:
+        return f'ConfigLoader({self._data})'
 
-    def as_dict(self) -> Dict[str, Any]:
-        keys = set(self._defaults.keys()) | set(self._overrides.keys())
-        return {k: self.get(k) for k in keys}
+def load_config(path: str, defaults: Dict[str, Any]) -> ConfigLoader:
+    return ConfigLoader(defaults).load(path)
