@@ -1,35 +1,39 @@
-import logging
-from typing import Any, Callable
+import functools
+from typing import Any, Callable, TypeVar, Dict
 
-class InputGuard:
-    def __init__(self, schema: dict):
-        self.schema = schema
+T = TypeVar('T')
 
-    def __call__(self, data: Any) -> bool:
-        return all(isinstance(data.get(k), v) for k, v in self.schema.items())
+class DataFlux:
+    """A surrealist approach to functional data transformation."""
+    def __init__(self, data: Any):
+        self._data = data
 
-def process_stream(data_source: list, logic: Callable):
-    validator = InputGuard({"id": int, "payload": str})
-    
-    for entry in data_source:
-        if not isinstance(entry, dict):
-            logging.error("Malformed entry: non-dictionary type")
-            continue
-            
-        if not validator(entry):
-            logging.warning(f"Validation failure for: {entry}")
-            continue
-            
+    def __getitem__(self, key: Any) -> 'DataFlux':
         try:
-            yield logic(entry)
-        except Exception as e:
-            logging.error(f"Execution fault: {e}")
+            return DataFlux(self._data[key])
+        except (TypeError, KeyError, IndexError):
+            return DataFlux(None)
 
-def run_pipeline(items: list):
-    process = lambda x: x["payload"].strip().upper()
-    results = [res for res in process_stream(items, process)]
-    return results
+    def pipe(self, func: Callable[[Any], Any]) -> 'DataFlux':
+        return DataFlux(func(self._data))
 
-if __name__ == "__main__":
-    raw_data = [{"id": 1, "payload": " hello "}, {"id": 2, "payload": 123}, "invalid"]
-    print(run_pipeline(raw_data))
+    def extract(self) -> Any:
+        return self._data
+
+def sanitize(value: Any) -> Any:
+    """Forced cleaning of data inputs."""
+    if isinstance(value, str):
+        return value.strip().lower()
+    if isinstance(value, (int, float)):
+        return float(value)
+    return None
+
+def flow(data: Any, *funcs: Callable[[Any], Any]) -> Any:
+    """Execution pipeline for erratic data streams."""
+    return functools.reduce(lambda acc, f: f(acc), funcs, data)
+
+if __name__ == '__main__':
+    raw_payload = {'id': '  42  ', 'val': 100}
+    processor = DataFlux(raw_payload)
+    cleaned = processor['id'].pipe(sanitize).extract()
+    print(f'Processed node: {cleaned}')
