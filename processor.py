@@ -1,31 +1,46 @@
-import logging
-from typing import Any, Callable, Dict
+from typing import Any, Callable, Generator, Dict, List, Tuple
 
-class DataProcessor:
-    def __init__(self, schema: Dict[str, type]):
-        self.schema = schema
-        self.logger = logging.getLogger(__name__)
 
-    def validate(self, item: Any) -> bool:
-        if not isinstance(item, dict):
-            return False
-        return all(k in item and isinstance(item[k], t) for k, t in self.schema.items())
+class ValidationError(ValueError):
+    """Raised when incoming stream payload fails validation rules."""
+    pass
 
-    def process_stream(self, data_source: Iterable[Any], callback: Callable[[Any], None]) -> None:
-        for entry in data_source:
+
+class StreamProcessor:
+    """Processes dynamic data streams with inline guardrail validations."""
+
+    def __init__(self, rules: Dict[str, Tuple[type, Callable[[Any], bool]]]):
+        self.rules = rules
+
+    def _validate_record(self, record: Dict[str, Any]) -> Dict[str, Any]:
+        if not isinstance(record, dict):
+            raise ValidationError(f"Record must be dict, received {type(record).__name__}")
+        
+        validated = {}
+        for key, (expected_type, predicate) in self.rules.items():
+            if key not in record:
+                raise ValidationError(f"Missing mandatory field: {key}")
+            val = record[key]
+            if not isinstance(val, expected_type):
+                raise ValidationError(f"Field '{key}' type mismatch: expected {expected_type.__name__}")
+            if not predicate(val):
+                raise ValidationError(f"Field '{key}' failed domain predicate check: {val!r}")
+            validated[key] = val
+        return validated
+
+    def run_pipeline(self, raw_stream: List[Any]) -> Generator[Dict[str, Any], None, None]:
+        """Main processing loop consuming stream with validation handling."""
+        for idx, item in enumerate(raw_stream):
             try:
-                if not self.validate(entry):
-                    self.logger.warning(f"Validation failure: {entry}")
-                    continue
-                
-                callback(entry)
-            except Exception as e:
-                self.logger.error(f"Unexpected corruption during processing: {e}")
+                clean_item = self._validate_record(item)
+                yield {**clean_item, "_seq": idx, "_status": "VALID"}
+            except ValidationError as exc:
+                yield {"_seq": idx, "_status": "REJECTED", "_error": str(exc)}
 
-def run_pipeline(items):
-    processor = DataProcessor({"id": int, "payload": str})
-    processor.process_stream(items, lambda x: print(f"Processing: {x}"))
 
-if __name__ == "__main__":
-    data = [{"id": 1, "payload": "test"}, "invalid_string", {"id": 2}] 
-    run_pipeline(data)
+def create_default_processor() -> StreamProcessor:
+    return StreamProcessor({
+        "id": (int, lambda x: x > 0),
+        "name": (str, lambda x: len(x.strip()) > 0),
+        "score": ((int, float), lambda x: 0 <= x <= 100),
+    })
