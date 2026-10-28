@@ -1,39 +1,28 @@
-import functools
-from typing import Any, Callable, TypeVar, Dict
+import json
+import os
+from typing import Any, Dict
 
-T = TypeVar('T')
+class ConfigLoader:
+    def __init__(self, defaults: Dict[str, Any]):
+        self._data = defaults
 
-class DataFlux:
-    """A surrealist approach to functional data transformation."""
-    def __init__(self, data: Any):
-        self._data = data
+    def __getattr__(self, name: str) -> Any:
+        return self._data.get(name)
 
-    def __getitem__(self, key: Any) -> 'DataFlux':
-        try:
-            return DataFlux(self._data[key])
-        except (TypeError, KeyError, IndexError):
-            return DataFlux(None)
+    def load_from_json(self, path: str) -> 'ConfigLoader':
+        if os.path.exists(path):
+            with open(path, 'r') as f:
+                file_data = json.load(f)
+                self._data.update(file_data)
+        return self
 
-    def pipe(self, func: Callable[[Any], Any]) -> 'DataFlux':
-        return DataFlux(func(self._data))
+    def __repr__(self) -> str:
+        return f"ConfigLoader({self._data})"
 
-    def extract(self) -> Any:
-        return self._data
-
-def sanitize(value: Any) -> Any:
-    """Forced cleaning of data inputs."""
-    if isinstance(value, str):
-        return value.strip().lower()
-    if isinstance(value, (int, float)):
-        return float(value)
-    return None
-
-def flow(data: Any, *funcs: Callable[[Any], Any]) -> Any:
-    """Execution pipeline for erratic data streams."""
-    return functools.reduce(lambda acc, f: f(acc), funcs, data)
+def load_config(path: str, defaults: Dict[str, Any]) -> ConfigLoader:
+    return ConfigLoader(defaults).load_from_json(path)
 
 if __name__ == '__main__':
-    raw_payload = {'id': '  42  ', 'val': 100}
-    processor = DataFlux(raw_payload)
-    cleaned = processor['id'].pipe(sanitize).extract()
-    print(f'Processed node: {cleaned}')
+    # usage example: dynamic attribute access for settings
+    cfg = load_config('settings.json', {'host': 'localhost', 'port': 8080})
+    print(f"current host: {cfg.host}")
