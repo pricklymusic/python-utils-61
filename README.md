@@ -2,60 +2,56 @@
 
 # python-utils-61
 
-`python-utils-61` is a lightweight Python toolkit designed to streamline common data processing, file handling, and string manipulation tasks. It provides clean, zero-dependency helper functions to eliminate boilerplate code across everyday Python projects.
+`python-utils-61` is a lightweight, dependency-free toolkit designed to streamline everyday Python development workflows. It provides optimized helpers for robust file operations, quick data transformation, and safe environment configuration handling.
 
 ## Features
 
-- **Safe File Operations**: Atomic JSON and text writing with automatic directory tree creation and error handling.
-- **Data Structure Helpers**: Efficient utilities to flatten nested dictionaries, chunk large iterables, and perform deep dictionary merges.
-- **String Transformations**: Fast converters for case formats (snake_case, camelCase, PascalCase) and robust slug generation.
-- **Execution Profiling**: Simple decorators to measure function execution time and memory footprint during development.
+- **Atomic File Writes:** Prevent partial file corruption by writing data to temporary buffers before swapping.
+- **Dot-Notation Dict Queries:** Traverse and extract values from deeply nested JSON or dictionary objects using simple path strings.
+- **Human-Readable Formatting:** Quickly convert raw bytes, execution durations, and timestamps into clean display strings.
+- **Typed Environment Parser:** Load environment variables directly into typed Python primitives with built-in fallback defaults.
 
 ## Installation
 
-Install the package directly from PyPI:
+Install the package via `pip`:
 
 ```bash
 pip install python-utils-61
 ```
 
-Or install the latest development version directly from GitHub:
+Or install locally directly from source:
 
 ```bash
-pip install git+https://github.com/Developer/python-utils-61.git
+git clone https://github.com/Developer/python-utils-61.git
+cd python-utils-61
+pip install .
 ```
 
 ## Quick Start
 
 ```python
-from python_utils_61.dict_utils import flatten_dict
-from python_utils_61.file_utils import safe_write_json
-from python_utils_61.timing import time_it
+from python_utils_61 import get_env, nested_get, format_bytes
 
-@time_it
-def main():
-    nested_payload = {
-        "user": {
-            "id": 42,
-            "preferences": {
-                "theme": "dark",
-                "notifications": True
-            }
+# Parse typed environment variables with defaults
+max_workers = get_env("MAX_WORKERS", default=4, cast=int)
+
+# Safely extract values from nested structures
+payload = {
+    "app": {
+        "services": {
+            "database": {"host": "localhost", "port": 5432}
         }
     }
+}
+db_host = nested_get(payload, "app.services.database.host", default="127.0.0.1")
 
-    # Flatten nested structures using dot notation
-    flat = flatten_dict(nested_payload)
-    print(flat)
-    # Output: {'user.id': 42, 'user.preferences.theme': 'dark', 'user.preferences.notifications': True}
+# Format metrics for output
+formatted_size = format_bytes(104857600)
 
-    # Safely write data to a file, creating missing subdirectories automatically
-    safe_write_json("output/user_config.json", flat, indent=2)
-
-if __name__ == "__main__":
-    main()
+print(f"Workers: {max_workers} | Host: {db_host} | Memory: {formatted_size}")
+# Output: Workers: 4 | Host: localhost | Memory: 100.00 MB
 ```
 
 ## License
 
-Distributed under the MIT License. See `LICENSE` for more information.
+Distributed under the MIT License. See `LICENSE` for details.
