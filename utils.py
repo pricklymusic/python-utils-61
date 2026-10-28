@@ -1,30 +1,27 @@
-from typing import Any, Callable, Dict, List, TypeVar, Optional
+import time
+import functools
+from typing import Callable, Any
 
-T = TypeVar('T')
+def retry_operation(max_attempts: int = 3, delay: float = 1.0):
+    def decorator(func: Callable):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs) -> Any:
+            last_exception = None
+            for attempt in range(max_attempts):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    last_exception = e
+                    if attempt < max_attempts - 1:
+                        sleep_time = delay * (2 ** attempt)
+                        time.sleep(sleep_time)
+                    continue
+            raise last_exception
+        return wrapper
+    return decorator
 
-def batch_process(data: List[T], size: int = 10) -> List[List[T]]:
-    """Splits a list into chunks of fixed size using list comprehension magic."""
-    return [data[i:i + size] for i in range(0, len(data), size)]
-
-def compose(*funcs: Callable[[Any], Any]) -> Callable[[Any], Any]:
-    """Functional pipe for chaining functions into a single pipeline."""
-    def inner(arg: Any) -> Any:
-        result = arg
-        for f in funcs:
-            result = f(result)
-        return result
-    return inner
-
-def safe_get(data: Dict[Any, Any], keys: List[Any], default: Optional[Any] = None) -> Any:
-    """Deep navigation of nested dictionaries with graceful fallback."""
-    current = data
-    try:
-        for key in keys:
-            current = current[key]
-        return current
-    except (KeyError, TypeError, IndexError):
-        return default
-
-def toggle_bool(val: bool) -> bool:
-    """Inverse state switcher for rapid logical toggling."""
-    return not val
+class NetworkHandler:
+    @staticmethod
+    @retry_operation(max_attempts=3, delay=0.5)
+    def execute(request_func: Callable, *args, **kwargs) -> Any:
+        return request_func(*args, **kwargs)
