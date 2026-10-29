@@ -1,33 +1,31 @@
-import functools
-from typing import Any, Callable
+import logging
 
-def validate_payload(schema: dict) -> Callable:
-    def decorator(func: Callable) -> Callable:
-        @functools.wraps(func)
-        def wrapper(data: Any, *args, **kwargs):
-            if not isinstance(data, dict):
-                raise ValueError('payload must be a dictionary')
-            for key, expected_type in schema.items():
-                if key not in data or not isinstance(data[key], expected_type):
-                    raise TypeError(f'invalid or missing field: {key}')
-            return func(data, *args, **kwargs)
-        return wrapper
-    return decorator
+def validate_payload(data):
+    required = {'id': int, 'payload': str}
+    if not isinstance(data, dict):
+        raise ValueError('non-dict input')
+    for key, expected_type in required.items():
+        if key not in data:
+            raise KeyError(f'missing {key}')
+        if not isinstance(data[key], expected_type):
+            raise TypeError(f'{key} type mismatch')
+    return True
 
-SCHEMA = {'id': int, 'task': str, 'priority': int}
-
-@validate_payload(SCHEMA)
-def process_event(event: dict) -> str:
-    return f"processing task {event['id']}: {event['task']}"
-
-def main_loop(events: list):
-    for event in events:
+def process_stream(data_stream):
+    logger = logging.getLogger('processor')
+    for entry in data_stream:
         try:
-            result = process_event(event)
-            print(result)
-        except (ValueError, TypeError) as e:
-            print(f"skipping invalid event: {e}")
+            if validate_payload(entry):
+                result = entry['payload'].strip().upper()
+                yield {'status': 'ok', 'data': result}
+        except (ValueError, KeyError, TypeError) as e:
+            logger.error(f'skipping invalid packet: {e}')
+            continue
+        except Exception as e:
+            logger.critical(f'unexpected system fault: {e}')
+            break
 
 if __name__ == '__main__':
-    data_stream = [{'id': 1, 'task': 'backup', 'priority': 2}, {'id': 'bad', 'task': 'error', 'priority': 1}]
-    main_loop(data_stream)
+    mock_input = [{'id': 1, 'payload': 'data'}, {'id': 2, 'payload': 123}, {'id': 3, 'payload': 'valid'}]
+    for item in process_stream(mock_input):
+        print(item)
