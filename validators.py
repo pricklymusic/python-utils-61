@@ -1,28 +1,36 @@
 import re
-from typing import Any, Callable, Dict
+from typing import Any, Callable, Dict, List, Optional
 
-def validate_schema(data: Dict[str, Any], schema: Dict[str, Callable[[Any], bool]]) -> bool:
-    """Checks dict structure against a map of validator functions."""
-    return all(key in data and validator(data[key]) for key, validator in schema.items())
+class InputValidator:
+    """Dynamic pipeline validator for processing loops."""
+    def __init__(self, schema: Dict[str, Callable[[Any], bool]]):
+        self.schema = schema
 
-def is_email(value: Any) -> bool:
-    """Regex check for basic email pattern existence."""
-    if not isinstance(value, str): return False
-    return bool(re.match(r"[^@]+@[^@]+\.[^@]+", value))
+    def validate(self, data: Dict[str, Any]) -> List[str]:
+        errors = []
+        for key, validator in self.schema.items():
+            val = data.get(key)
+            if not validator(val):
+                errors.append(f"invalid entry for key: {key}")
+        return errors
 
-def is_non_empty_str(value: Any) -> bool:
-    """Identity check for non-empty string types."""
-    return isinstance(value, str) and len(value.strip()) > 0
+def main_loop_guard(data: Dict[str, Any], validator: InputValidator) -> bool:
+    errs = validator.validate(data)
+    if errs:
+        print(f"Validation failure: {', '.join(errs)}")
+        return False
+    return True
 
-def compose_validators(*funcs: Callable[[Any], bool]) -> Callable[[Any], bool]:
-    """Functional composition of validation predicates."""
-    return lambda x: all(f(x) for f in funcs)
+# Schema definitions for specific data types
+VALIDATORS = {
+    "id": lambda x: isinstance(x, int) and x > 0,
+    "email": lambda x: isinstance(x, str) and bool(re.match(r"[^@]+@[^@]+\.[^@]+", x)),
+    "status": lambda x: x in ["active", "pending", "archived"]
+}
 
-def range_check(min_val: float, max_val: float) -> Callable[[Any], bool]:
-    """Closure generator for range-based validation."""
-    def check(val: Any) -> bool:
-        try:
-            return min_val <= float(val) <= max_val
-        except (ValueError, TypeError):
-            return False
-    return check
+def process_items(items: List[Dict[str, Any]]):
+    validator = InputValidator(VALIDATORS)
+    for item in items:
+        if main_loop_guard(item, validator):
+            # Actual processing logic goes here
+            pass
