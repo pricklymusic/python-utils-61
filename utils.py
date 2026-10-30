@@ -1,34 +1,42 @@
-import collections
-from typing import Any, Iterable, Dict, Union
+import time
+import functools
+import random
 
-def deep_flatten(items: Iterable[Any]) -> Iterable[Any]:
-    """Recursively flatten nested iterables into a stream."""
-    for item in items:
-        if isinstance(item, (list, tuple, set)):
-            yield from deep_flatten(item)
-        else:
-            yield item
+def retry_network(max_retries=3, base_delay=1.0, exceptions=(ConnectionError, TimeoutError)):
+    """Decorator implementing exponential backoff for network operations."""
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            attempts = 0
+            while attempts < max_retries:
+                try:
+                    return func(*args, **kwargs)
+                except exceptions as e:
+                    attempts += 1
+                    if attempts >= max_retries:
+                        raise e
+                    
+                    # Jittered exponential backoff
+                    delay = (base_delay * (2 ** (attempts - 1))) + (random.uniform(0, 1))
+                    time.sleep(delay)
+            return func(*args, **kwargs)
+        return wrapper
+    return decorator
 
-def dict_shredder(data: Dict[Any, Any], separator: str = '.') -> Dict[str, Any]:
-    """Flatten nested dictionary keys into dot notation."""
-    items = {}
-    for key, value in data.items():
-        if isinstance(value, dict):
-            for sub_key, sub_value in dict_shredder(value, separator).items():
-                items[f"{key}{separator}{sub_key}"] = sub_value
-        else:
-            items[key] = value
-    return items
+class NetworkSession:
+    """Context manager for simulating network session lifecycle."""
+    def __init__(self, target):
+        self.target = target
 
-def batch_process(data: Iterable[Any], size: int) -> Iterable[Iterable[Any]]:
-    """Generator yielding fixed-size chunks of data."""
-    it = iter(data)
-    while chunk := list(collections.islice(it, size)):
-        yield chunk
+    def __enter__(self):
+        return self
 
-def type_coerce(val: Any, target_type: type) -> Any:
-    """Graceful type casting with fallback to original."""
-    try:
-        return target_type(val)
-    except (ValueError, TypeError):
-        return val
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        pass
+
+    @retry_network(max_retries=5, base_delay=0.5)
+    def request(self, endpoint):
+        # Simulate intermittent network instability
+        if random.random() < 0.7:
+            raise ConnectionError(f"Failed to reach {self.target}/{endpoint}")
+        return {"status": 200, "data": "success"}
