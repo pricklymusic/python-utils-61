@@ -1,25 +1,34 @@
-import sys
-from typing import Any, Callable, List
+import collections
+from typing import Any, Iterable, Dict, Union
 
-def validate_payload(data: Any, schema: List[type]) -> bool:
-    """Validate that each element in data matches the schema list."""
-    if not isinstance(data, (list, tuple)) or len(data) != len(schema):
-        return False
-    return all(isinstance(v, t) for v, t in zip(data, schema))
+def deep_flatten(items: Iterable[Any]) -> Iterable[Any]:
+    """Recursively flatten nested iterables into a stream."""
+    for item in items:
+        if isinstance(item, (list, tuple, set)):
+            yield from deep_flatten(item)
+        else:
+            yield item
 
-def run_processing_loop(data_stream: List[Any], schema: List[type], process_func: Callable[[Any], Any]):
-    """Process stream with strict type validation guard."""
-    for entry in data_stream:
-        try:
-            if not validate_payload(entry, schema):
-                raise ValueError(f"malformed payload: {entry}")
-            result = process_func(entry)
-            sys.stdout.write(f"success: {result}\n")
-        except (ValueError, TypeError) as e:
-            sys.stderr.write(f"skipped entry: {e}\n")
-            continue
+def dict_shredder(data: Dict[Any, Any], separator: str = '.') -> Dict[str, Any]:
+    """Flatten nested dictionary keys into dot notation."""
+    items = {}
+    for key, value in data.items():
+        if isinstance(value, dict):
+            for sub_key, sub_value in dict_shredder(value, separator).items():
+                items[f"{key}{separator}{sub_key}"] = sub_value
+        else:
+            items[key] = value
+    return items
 
-if __name__ == "__main__":
-    data = [(1, "test"), (2, "data"), ("wrong", 3)]
-    schema = [int, str]
-    run_processing_loop(data, schema, lambda x: x[0] * 10)
+def batch_process(data: Iterable[Any], size: int) -> Iterable[Iterable[Any]]:
+    """Generator yielding fixed-size chunks of data."""
+    it = iter(data)
+    while chunk := list(collections.islice(it, size)):
+        yield chunk
+
+def type_coerce(val: Any, target_type: type) -> Any:
+    """Graceful type casting with fallback to original."""
+    try:
+        return target_type(val)
+    except (ValueError, TypeError):
+        return val
