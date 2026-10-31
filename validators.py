@@ -1,36 +1,34 @@
-import re
-from typing import Any, Callable, Dict, List, Optional
+import functools
 
-class InputValidator:
-    """Dynamic pipeline validator for processing loops."""
-    def __init__(self, schema: Dict[str, Callable[[Any], bool]]):
-        self.schema = schema
+class ValidationError(Exception):
+    pass
 
-    def validate(self, data: Dict[str, Any]) -> List[str]:
-        errors = []
-        for key, validator in self.schema.items():
-            val = data.get(key)
-            if not validator(val):
-                errors.append(f"invalid entry for key: {key}")
-        return errors
+def validate_loop(schema):
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            data = args[0] if args else kwargs.get('data')
+            for key, expected_type in schema.items():
+                val = data.get(key)
+                if not isinstance(val, expected_type):
+                    raise ValidationError(f'invalid type for {key}: expected {expected_type}')
+            return func(*args, **kwargs)
+        return wrapper
+    return decorator
 
-def main_loop_guard(data: Dict[str, Any], validator: InputValidator) -> bool:
-    errs = validator.validate(data)
-    if errs:
-        print(f"Validation failure: {', '.join(errs)}")
-        return False
-    return True
+@validate_loop({'id': int, 'payload': str})
+def process_event(data):
+    print(f'processing: {data['id']}')
 
-# Schema definitions for specific data types
-VALIDATORS = {
-    "id": lambda x: isinstance(x, int) and x > 0,
-    "email": lambda x: isinstance(x, str) and bool(re.match(r"[^@]+@[^@]+\.[^@]+", x)),
-    "status": lambda x: x in ["active", "pending", "archived"]
-}
+def run_main_loop(queue):
+    while True:
+        try:
+            item = queue.pop(0)
+            process_event(item)
+        except (IndexError, ValidationError, AttributeError) as e:
+            print(f'skipping invalid item: {e}')
+            break
 
-def process_items(items: List[Dict[str, Any]]):
-    validator = InputValidator(VALIDATORS)
-    for item in items:
-        if main_loop_guard(item, validator):
-            # Actual processing logic goes here
-            pass
+if __name__ == '__main__':
+    mock_queue = [{'id': 1, 'payload': 'hello'}, {'id': 'bad', 'payload': 'world'}]
+    run_main_loop(mock_queue)
