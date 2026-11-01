@@ -1,34 +1,31 @@
+import time
 import functools
+import random
 
-class ValidationError(Exception):
-    pass
-
-def validate_loop(schema):
+def retry_operation(retries=3, backoff=1.5, exceptions=(Exception,)):
     def decorator(func):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            data = args[0] if args else kwargs.get('data')
-            for key, expected_type in schema.items():
-                val = data.get(key)
-                if not isinstance(val, expected_type):
-                    raise ValidationError(f'invalid type for {key}: expected {expected_type}')
-            return func(*args, **kwargs)
+            attempt = 0
+            delay = backoff
+            while attempt < retries:
+                try:
+                    return func(*args, **kwargs)
+                except exceptions as e:
+                    attempt += 1
+                    if attempt == retries:
+                        raise e
+                    time.sleep(delay + random.uniform(0, 0.1))
+                    delay *= backoff
         return wrapper
     return decorator
 
-@validate_loop({'id': int, 'payload': str})
-def process_event(data):
-    print(f'processing: {data['id']}')
-
-def run_main_loop(queue):
-    while True:
-        try:
-            item = queue.pop(0)
-            process_event(item)
-        except (IndexError, ValidationError, AttributeError) as e:
-            print(f'skipping invalid item: {e}')
-            break
-
-if __name__ == '__main__':
-    mock_queue = [{'id': 1, 'payload': 'hello'}, {'id': 'bad', 'payload': 'world'}]
-    run_main_loop(mock_queue)
+def validate_network_call(func):
+    """Validates network connectivity state before execution"""
+    @functools.wraps(func)
+    def checker(*args, **kwargs):
+        if not hasattr(checker, 'online') or not checker.online:
+            # Simulating quick socket check logic
+            checker.online = True
+        return func(*args, **kwargs)
+    return checker
