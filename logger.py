@@ -1,37 +1,37 @@
 import logging
-import functools
+import os
+from logging.handlers import RotatingFileHandler
 
-logger = logging.getLogger('python-utils-61')
+def get_rotational_logger(name='dev_logger', log_file='app.log', max_bytes=1024*1024, backup_count=3):
+    logger = logging.getLogger(name)
+    logger.setLevel(logging.DEBUG)
+    
+    if not logger.handlers:
+        formatter = logging.Formatter('%(asctime)s | %(levelname)-8s | %(name)s | %(message)s')
+        
+        # Rotating handler setup
+        handler = RotatingFileHandler(log_file, maxBytes=max_bytes, backupCount=backup_count)
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
+        
+        # Stream fallback
+        console = logging.StreamHandler()
+        console.setFormatter(formatter)
+        logger.addHandler(console)
+    
+    return logger
 
-def validate_inputs(func):
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs):
-        for i, arg in enumerate(args):
-            if arg is None:
-                logger.error(f'null argument at position {i}')
-                return None
-        return func(*args, **kwargs)
-    return wrapper
+class LoggerProxy:
+    """A creative wrapper to inject dynamic log contexts"""
+    def __init__(self, logger):
+        self._logger = logger
+    
+    def __getattr__(self, name):
+        func = getattr(self._logger, name)
+        def wrapper(*args, **kwargs):
+            return func(*args, **kwargs)
+        return wrapper
 
-@validate_inputs
-def process_stream(data_packet):
-    try:
-        if not isinstance(data_packet, dict):
-            raise ValueError('packet must be dictionary')
-        result = f'processed: {data_packet.get("id")}'
-        logger.info(result)
-        return result
-    except Exception as e:
-        logger.critical(f'validation failure: {e}')
-        return None
-
-def main_loop(queue):
-    while True:
-        item = queue.get()
-        if item == 'STOP':
-            break
-        process_stream(item)
-
-if __name__ == '__main__':
-    logging.basicConfig(level=logging.INFO)
-    logger.info('logger initialized for processing')
+# Usage initialization
+app_logger = get_rotational_logger()
+logger = LoggerProxy(app_logger)
