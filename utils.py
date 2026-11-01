@@ -1,68 +1,42 @@
-"""Dynamic key-value transformation utilities with monadic chaining."""
+import functools
+import logging
+import time
+from typing import Callable, Any
 
-from typing import Any, Callable, Dict, List, Optional, Tuple, TypeVar
+logger = logging.getLogger('python-utils-61')
 
-T = TypeVar("T")
+class ExecutionContext:
+    def __init__(self, name: str):
+        self.name = name
+        self.start = 0.0
 
-
-class LazyTransformer:
-    """Wraps dictionary data allowing lazy, chained functional transformations.
-
-    Attributes:
-        _data: The underlying initial data dictionary.
-        _ops: Queue of transformation functions to apply lazily.
-    """
-
-    def __init__(self, data: Optional[Dict[Any, Any]] = None) -> None:
-        self._data: Dict[Any, Any] = dict(data) if data else {}
-        self._ops: List[Callable[[Dict[Any, Any]], Dict[Any, Any]]] = []
-
-    def pipe(self, fn: Callable[[Dict[Any, Any]], Dict[Any, Any]]) -> "LazyTransformer":
-        """Appends a transformation function to the lazy execution pipeline."""
-        self._ops.append(fn)
+    def __enter__(self):
+        self.start = time.perf_counter()
         return self
 
-    def __rshift__(self, fn: Callable[[Dict[Any, Any]], Dict[Any, Any]]) -> "LazyTransformer":
-        """Overloads the `>>` operator to support pipe syntax."""
-        return self.pipe(fn)
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        elapsed = time.perf_counter() - self.start
+        logger.info(f'[{self.name}] execution finished in {elapsed:.4f}s')
 
-    def evaluate(self) -> Dict[Any, Any]:
-        """Executes all queued transformations sequentially and returns the result."""
-        result = dict(self._data)
-        for op in self._ops:
-            result = op(result)
-        return result
+def retry(attempts: int = 3, delay: float = 0.5):
+    def decorator(func: Callable):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            last_err = None
+            for i in range(attempts):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    last_err = e
+                    time.sleep(delay * (i + 1))
+            raise last_err
+        return wrapper
+    return decorator
 
+def batch_process(iterable: list, chunk_size: int):
+    """Splits iterable into sized chunks using generator expressions"""
+    for i in range(0, len(iterable), chunk_size):
+        yield iterable[i:i + chunk_size]
 
-def flatten_dict(
-    d: Dict[str, Any], parent_key: str = "", sep: str = "."
-) -> Dict[str, Any]:
-    """Flattens a deeply nested dictionary into a single-level key representation.
-
-    Args:
-        d: Target nested dictionary.
-        parent_key: Key path prefix used during recursion.
-        sep: Delimiter for joining nested key strings.
-
-    Returns:
-        Flattened dictionary mapping composite keys to values.
-    """
-    items: List[Tuple[str, Any]] = []
-    for k, v in d.items():
-        new_key = f"{parent_key}{sep}{k}" if parent_key else k
-        if isinstance(v, dict):
-            items.extend(flatten_dict(v, new_key, sep=sep).items())
-        else:
-            items.append((new_key, v))
-    return dict(items)
-
-
-def sanitize_keys(
-    caster: Callable[[str], str] = str.lower
-) -> Callable[[Dict[str, Any]], Dict[str, Any]]:
-    """Returns a function that transforms dictionary keys using the given caster."""
-
-    def _transform(d: Dict[str, Any]) -> Dict[str, Any]:
-        return {caster(str(k)): v for k, v in d.items()}
-
-    return _transform
+def smart_dict_merge(*dicts: dict) -> dict:
+    return {k: v for d in dicts for k, v in d.items()}
