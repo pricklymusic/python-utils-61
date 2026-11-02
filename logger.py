@@ -1,57 +1,61 @@
-import sys
+import os
 import logging
 from logging.handlers import RotatingFileHandler
-from pathlib import Path
-from typing import Optional, Union
+from typing import Dict, Union
 
 
-class RingBufferFormatter(logging.Formatter):
-    """Custom dynamic log formatter that injects terminal color codes."""
-    
-    COLORS = {
-        'DEBUG': '\033[36m',    # Cyan
-        'INFO': '\033[32m',     # Green
-        'WARNING': '\033[33m',  # Yellow
-        'ERROR': '\033[31m',    # Red
-        'CRITICAL': '\033[41m'  # Red BG
-    }
-    RESET = '\033[0m'
+class SelfCleaningRotatingHandler(RotatingFileHandler):
+    """Rotating file handler that automatically provisions target directories."""
 
-    def format(self, record: logging.LogRecord) -> str:
-        color = self.COLORS.get(record.levelname, self.RESET)
-        record.levelname_color = f"{color}{record.levelname}{self.RESET}"
-        return super().format(record)
+    def __init__(self, filename: str, maxBytes: int = 1_048_576, backupCount: int = 5, encoding: str = "utf-8"):
+        log_dir = os.path.dirname(filename)
+        if log_dir:
+            os.makedirs(log_dir, exist_ok=True)
+        super().__init__(filename, maxBytes=maxBytes, backupCount=backupCount, encoding=encoding)
 
 
-def setup_rotating_logger(
-    name: str = "app",
-    log_file: Union[str, Path] = "app.log",
-    max_bytes: int = 1_048_576,
-    backup_count: int = 5,
-    level: int = logging.INFO,
-    fmt: Optional[str] = None
-) -> logging.Logger:
-    """Configures a logger with size-based rotation and colored output."""
-    logger = logging.getLogger(name)
-    logger.setLevel(level)
-    logger.handlers.clear()
+class DynamicRotator:
+    """Fluent logger wrapper provisioning rotation handlers on demand."""
 
-    default_fmt = "%(asctime)s | %(levelname_color)s | %(name)s | %(message)s"
-    formatter = RingBufferFormatter(fmt or default_fmt, datefmt="%Y-%m-%d %H:%M:%S")
+    _registry: Dict[str, logging.Logger] = {}
 
-    log_path = Path(log_file)
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-    
-    file_handler = RotatingFileHandler(
-        log_path, maxBytes=max_bytes, backupCount=backup_count, encoding="utf-8"
-    )
-    file_handler.setFormatter(logging.Formatter(
-        "%(asctime)s | %(levelname)s | %(name)s | %(message)s"
-    ))
-    logger.addHandler(file_handler)
+    def __init__(self, base_name: str = "app", log_dir: str = "logs"):
+        self.base_name = base_name
+        self.log_dir = log_dir
 
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setFormatter(formatter)
-    logger.addHandler(console_handler)
+    def configure(
+        self,
+        name: str = "main",
+        max_bytes: int = 5 * 1024 * 1024,
+        backup_count: int = 3,
+        level: Union[int, str] = logging.INFO,
+    ) -> logging.Logger:
+        full_name = f"{self.base_name}.{name}" if name != "main" else self.base_name
+        if full_name in self._registry:
+            return self._registry[full_name]
 
-    return logger
+        logger = logging.getLogger(full_name)
+        logger.setLevel(level)
+
+        filepath = os.path.join(self.log_dir, f"{name}.log")
+        handler = SelfCleaningRotatingHandler(filepath, maxBytes=max_bytes, backupCount=backup_count)
+
+        fmt = logging.Formatter(
+            "[%(asctime)s] %(levelname)-8s [%(name)s:%(lineno)d] - %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        )
+        handler.setFormatter(fmt)
+        logger.addHandler(handler)
+
+        self._registry[full_name] = logger
+        return logger
+
+    def __getattr__(self, name: str) -> logging.Logger:
+        return self.configure(name=name)
+
+
+def setup_rotating_logger(log_path: str = "logs/app.log", max_mb: float = 2.0, backups: int = 5) -> logging.Logger:
+    folder = os.path.dirname(log_path) or "logs"
+    rotator = DynamicRotator(log_dir=folder)
+    channel = os.path.splitext(os.path.basename(log_path))[0]
+    return rotator.configure(name=channel, max_bytes=int(max_mb * 1024 * 1024), backup_count=backups)
