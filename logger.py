@@ -1,37 +1,57 @@
+import sys
 import logging
-import os
 from logging.handlers import RotatingFileHandler
+from pathlib import Path
+from typing import Optional, Union
 
-def get_rotational_logger(name='dev_logger', log_file='app.log', max_bytes=1024*1024, backup_count=3):
+
+class RingBufferFormatter(logging.Formatter):
+    """Custom dynamic log formatter that injects terminal color codes."""
+    
+    COLORS = {
+        'DEBUG': '\033[36m',    # Cyan
+        'INFO': '\033[32m',     # Green
+        'WARNING': '\033[33m',  # Yellow
+        'ERROR': '\033[31m',    # Red
+        'CRITICAL': '\033[41m'  # Red BG
+    }
+    RESET = '\033[0m'
+
+    def format(self, record: logging.LogRecord) -> str:
+        color = self.COLORS.get(record.levelname, self.RESET)
+        record.levelname_color = f"{color}{record.levelname}{self.RESET}"
+        return super().format(record)
+
+
+def setup_rotating_logger(
+    name: str = "app",
+    log_file: Union[str, Path] = "app.log",
+    max_bytes: int = 1_048_576,
+    backup_count: int = 5,
+    level: int = logging.INFO,
+    fmt: Optional[str] = None
+) -> logging.Logger:
+    """Configures a logger with size-based rotation and colored output."""
     logger = logging.getLogger(name)
-    logger.setLevel(logging.DEBUG)
+    logger.setLevel(level)
+    logger.handlers.clear()
+
+    default_fmt = "%(asctime)s | %(levelname_color)s | %(name)s | %(message)s"
+    formatter = RingBufferFormatter(fmt or default_fmt, datefmt="%Y-%m-%d %H:%M:%S")
+
+    log_path = Path(log_file)
+    log_path.parent.mkdir(parents=True, exist_ok=True)
     
-    if not logger.handlers:
-        formatter = logging.Formatter('%(asctime)s | %(levelname)-8s | %(name)s | %(message)s')
-        
-        # Rotating handler setup
-        handler = RotatingFileHandler(log_file, maxBytes=max_bytes, backupCount=backup_count)
-        handler.setFormatter(formatter)
-        logger.addHandler(handler)
-        
-        # Stream fallback
-        console = logging.StreamHandler()
-        console.setFormatter(formatter)
-        logger.addHandler(console)
-    
+    file_handler = RotatingFileHandler(
+        log_path, maxBytes=max_bytes, backupCount=backup_count, encoding="utf-8"
+    )
+    file_handler.setFormatter(logging.Formatter(
+        "%(asctime)s | %(levelname)s | %(name)s | %(message)s"
+    ))
+    logger.addHandler(file_handler)
+
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setFormatter(formatter)
+    logger.addHandler(console_handler)
+
     return logger
-
-class LoggerProxy:
-    """A creative wrapper to inject dynamic log contexts"""
-    def __init__(self, logger):
-        self._logger = logger
-    
-    def __getattr__(self, name):
-        func = getattr(self._logger, name)
-        def wrapper(*args, **kwargs):
-            return func(*args, **kwargs)
-        return wrapper
-
-# Usage initialization
-app_logger = get_rotational_logger()
-logger = LoggerProxy(app_logger)
