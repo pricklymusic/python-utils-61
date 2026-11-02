@@ -1,35 +1,47 @@
-import functools
-from typing import Any, Callable, Dict, List, Union
+import math
+from typing import Any, Callable, Iterable, TypeVar
 
-def morph_data(data: Any, schema: Dict[str, Callable]) -> Dict[str, Any]:
-    """Transforms dict values using registered schema functions."""
-    if not isinstance(data, dict):
-        return {}
-    return {k: schema.get(k, lambda x: x)(v) for k, v in data.items()}
+T = TypeVar("T")
 
-def deep_freeze(obj: Any) -> Any:
-    """Recursively converts mutable iterables to immutable tuples."""
-    if isinstance(obj, list):
-        return tuple(deep_freeze(i) for i in obj)
-    if isinstance(obj, dict):
-        return frozenset((k, deep_freeze(v)) for k, v in obj.items())
-    return obj
+class ResilientEvaluator:
+    """Context-based evaluator absorbing edge case exceptions and non-finite floats."""
 
-def compose_pipeline(*functions: Callable) -> Callable:
-    """Right-to-left function composition chain."""
-    return functools.reduce(lambda f, g: lambda x: f(g(x)), functions, lambda x: x)
+    def __init__(self, fallback: Any = None, exceptions: tuple[type[BaseException], ...] = (Exception,)):
+        self.fallback = fallback
+        self.exceptions = exceptions
 
-def pluck_nested(data: Dict, path: List[str], default: Any = None) -> Any:
-    """Dot-notation navigation through nested dictionaries."""
-    try:
-        return functools.reduce(lambda d, key: d.get(key, {}), path, data) or default
-    except AttributeError:
+    def evaluate(self, func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+        try:
+            val = func(*args, **kwargs)
+            if isinstance(val, float) and (math.isnan(val) or math.isinf(val)):
+                return self.fallback
+            return val
+        except self.exceptions:
+            return self.fallback
+
+def safe_dig(container: Any, path: Iterable[Any], default: Any = None) -> Any:
+    """Traverse nested collections safely, handling boundary edge cases."""
+    current = container
+    evaluator = ResilientEvaluator(fallback=default, exceptions=(TypeError, KeyError, IndexError, ValueError))
+
+    for key in path:
+        def _step(c: Any, k: Any) -> Any:
+            if isinstance(c, dict):
+                return c[k]
+            if isinstance(c, (list, tuple, bytes, bytearray)):
+                idx = int(k)
+                return c[idx]
+            return getattr(c, str(k))
+
+        current = evaluator.evaluate(_step, current, key)
+        if current is default:
+            break
+    return current
+
+def coerce_numeric(value: Any, default: float = 0.0, allow_zero: bool = True) -> float:
+    """Coerce untrusted inputs to float, guarding against NaN, Inf, and overflow edge cases."""
+    evaluator = ResilientEvaluator(fallback=default, exceptions=(ValueError, TypeError, OverflowError))
+    res = evaluator.evaluate(lambda v: float(v if not isinstance(v, (bytes, bytearray)) else v.decode("utf-8")), value)
+    if not allow_zero and res == 0.0:
         return default
-
-class DataProxy:
-    """Attribute-based access for dictionary payloads."""
-    def __init__(self, data: Dict):
-        self.__dict__.update(data)
-
-    def __repr__(self):
-        return f"DataProxy({self.__dict__})"
+    return res
