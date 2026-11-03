@@ -1,61 +1,59 @@
-import os
+import gzip
 import logging
+import os
+import shutil
 from logging.handlers import RotatingFileHandler
-from typing import Dict, Union
+from pathlib import Path
+from typing import Optional, Union
 
 
-class SelfCleaningRotatingHandler(RotatingFileHandler):
-    """Rotating file handler that automatically provisions target directories."""
+class GZRotatingFileHandler(RotatingFileHandler):
+    """Rotating file handler that automatically compresses old logs into gzip archives."""
 
-    def __init__(self, filename: str, maxBytes: int = 1_048_576, backupCount: int = 5, encoding: str = "utf-8"):
-        log_dir = os.path.dirname(filename)
-        if log_dir:
-            os.makedirs(log_dir, exist_ok=True)
-        super().__init__(filename, maxBytes=maxBytes, backupCount=backupCount, encoding=encoding)
+    def doRollover(self) -> None:
+        if self.stream:
+            self.stream.close()
+            self.stream = None
 
+        super().doRollover()
 
-class DynamicRotator:
-    """Fluent logger wrapper provisioning rotation handlers on demand."""
-
-    _registry: Dict[str, logging.Logger] = {}
-
-    def __init__(self, base_name: str = "app", log_dir: str = "logs"):
-        self.base_name = base_name
-        self.log_dir = log_dir
-
-    def configure(
-        self,
-        name: str = "main",
-        max_bytes: int = 5 * 1024 * 1024,
-        backup_count: int = 3,
-        level: Union[int, str] = logging.INFO,
-    ) -> logging.Logger:
-        full_name = f"{self.base_name}.{name}" if name != "main" else self.base_name
-        if full_name in self._registry:
-            return self._registry[full_name]
-
-        logger = logging.getLogger(full_name)
-        logger.setLevel(level)
-
-        filepath = os.path.join(self.log_dir, f"{name}.log")
-        handler = SelfCleaningRotatingHandler(filepath, maxBytes=max_bytes, backupCount=backup_count)
-
-        fmt = logging.Formatter(
-            "[%(asctime)s] %(levelname)-8s [%(name)s:%(lineno)d] - %(message)s",
-            datefmt="%Y-%m-%d %H:%M:%S",
-        )
-        handler.setFormatter(fmt)
-        logger.addHandler(handler)
-
-        self._registry[full_name] = logger
-        return logger
-
-    def __getattr__(self, name: str) -> logging.Logger:
-        return self.configure(name=name)
+        for i in range(1, self.backupCount + 1):
+            sfn = f"{self.baseFilename}.{i}"
+            gz_sfn = f"{sfn}.gz"
+            if os.path.exists(sfn) and not os.path.exists(gz_sfn):
+                with open(sfn, "rb") as f_in:
+                    with gzip.open(gz_sfn, "wb") as f_out:
+                        shutil.copyfileobj(f_in, f_out)
+                os.remove(sfn)
 
 
-def setup_rotating_logger(log_path: str = "logs/app.log", max_mb: float = 2.0, backups: int = 5) -> logging.Logger:
-    folder = os.path.dirname(log_path) or "logs"
-    rotator = DynamicRotator(log_dir=folder)
-    channel = os.path.splitext(os.path.basename(log_path))[0]
-    return rotator.configure(name=channel, max_bytes=int(max_mb * 1024 * 1024), backup_count=backups)
+def setup_logger(
+    name: str = "app",
+    log_dir: Union[str, Path] = "logs",
+    max_bytes: int = 1024 * 1024,
+    backup_count: int = 5,
+    level: int = logging.INFO,
+    fmt: Optional[str] = None,
+) -> logging.Logger:
+    target_dir = Path(log_dir)
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    logger = logging.getLogger(name)
+    logger.setLevel(level)
+    logger.handlers.clear()
+
+    pattern = fmt or "[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s"
+    formatter = logging.Formatter(pattern, datefmt="%Y-%m-%d %H:%M:%S")
+
+    log_file = target_dir / f"{name}.log"
+    file_handler = GZRotatingFileHandler(
+        log_file, maxBytes=max_bytes, backupCount=backup_count, encoding="utf-8"
+    )
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
+
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(formatter)
+    logger.addHandler(console_handler)
+
+    return logger
