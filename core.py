@@ -1,48 +1,49 @@
 import functools
-import logging
-import sys
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
-logger = logging.getLogger(__name__)
 
-def resilient_executor(func):
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs):
-        retries = 3
-        while retries > 0:
-            try:
-                return func(*args, **kwargs)
-            except (ValueError, TypeError, ZeroDivisionError) as e:
-                logger.warning(f"Caught {type(e).__name__}: {e}. Retrying...")
-                retries -= 1
-                if retries == 0:
-                    return None
-            except Exception as e:
-                logger.critical(f"Unrecoverable error: {e}")
-                sys.exit(1)
-    return wrapper
+class FastMemoEngine:
+    """High-performance bitmask ring-buffer memoizer for core utility operations."""
 
-class EdgeCaseProcessor:
-    def __init__(self, data=None):
-        self.data = data or {}
+    __slots__ = ("_size", "_mask", "_keys", "_values")
 
-    @resilient_executor
-    def calculate_ratio(self, numerator, denominator):
-        return numerator / denominator
+    def __init__(self, power_of_two: int = 256):
+        if power_of_two <= 0 or (power_of_two & (power_of_two - 1)) != 0:
+            raise ValueError("Size must be a positive power of two")
+        self._size = power_of_two
+        self._mask = power_of_two - 1
+        self._keys: List[Optional[Tuple[Any, ...]]] = [None] * self._size
+        self._values: List[Any] = [None] * self._size
 
-    @resilient_executor
-    def fetch_key(self, key):
-        if not isinstance(key, str):
-            raise TypeError("Key must be string")
-        return self.data[key]
+    def memoize(self, func: Callable[..., Any]) -> Callable[..., Any]:
+        """Wraps a pure function with fixed-slot array cache lookup."""
+        keys = self._keys
+        values = self._values
+        mask = self._mask
 
-def run_safe_sequence():
-    proc = EdgeCaseProcessor({'a': 10})
-    results = [
-        proc.calculate_ratio(10, 0),
-        proc.fetch_key(123),
-        proc.fetch_key('a')
-    ]
-    return [r for r in results if r is not None]
+        @functools.wraps(func)
+        def wrapper(*args: Any) -> Any:
+            slot = hash(args) & mask
+            if keys[slot] == args:
+                return values[slot]
+            result = func(*args)
+            keys[slot] = args
+            values[slot] = result
+            return result
 
-if __name__ == "__main__":
-    print(run_safe_sequence())
+        def clear() -> None:
+            for i in range(self._size):
+                keys[i] = None
+                values[i] = None
+
+        setattr(wrapper, "clear_cache", clear)
+        return wrapper
+
+
+def fast_batch_transform(items: List[Any], transform_fn: Callable[[Any], Any]) -> List[Any]:
+    """Applies transformation using pre-allocated result lists for performance."""
+    length = len(items)
+    result = [None] * length
+    for idx in range(length):
+        result[idx] = transform_fn(items[idx])
+    return result
