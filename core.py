@@ -1,37 +1,48 @@
 import functools
-import time
+import logging
+import sys
 
-class MemoizedProcess:
-    def __init__(self, func):
-        self.func = func
-        self.cache = {}
-        self.expiry = {}
+logger = logging.getLogger(__name__)
 
-    def __call__(self, *args, ttl=300):
-        now = time.time()
-        if args in self.cache and now < self.expiry.get(args, 0):
-            return self.cache[args]
-        
-        result = self.func(*args)
-        self.cache[args] = result
-        self.expiry[args] = now + ttl
-        return result
+def resilient_executor(func):
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        retries = 3
+        while retries > 0:
+            try:
+                return func(*args, **kwargs)
+            except (ValueError, TypeError, ZeroDivisionError) as e:
+                logger.warning(f"Caught {type(e).__name__}: {e}. Retrying...")
+                retries -= 1
+                if retries == 0:
+                    return None
+            except Exception as e:
+                logger.critical(f"Unrecoverable error: {e}")
+                sys.exit(1)
+    return wrapper
 
-def batch_process(items, func, chunk_size=100):
-    for i in range(0, len(items), chunk_size):
-        yield [func(x) for x in items[i:i + chunk_size]]
+class EdgeCaseProcessor:
+    def __init__(self, data=None):
+        self.data = data or {}
 
-@MemoizedProcess
-def heavy_computation(data):
-    # Simulate expensive transformation
-    return sum(pow(x, 2) for x in data if x % 2 == 0)
+    @resilient_executor
+    def calculate_ratio(self, numerator, denominator):
+        return numerator / denominator
 
-def optimized_pipeline(data_stream):
-    """
-    Core execution path using batching and memoization.
-    """
-    processed = []
-    for batch in batch_process(data_stream, lambda x: x, chunk_size=50):
-        res = heavy_computation(tuple(batch))
-        processed.append(res)
-    return processed
+    @resilient_executor
+    def fetch_key(self, key):
+        if not isinstance(key, str):
+            raise TypeError("Key must be string")
+        return self.data[key]
+
+def run_safe_sequence():
+    proc = EdgeCaseProcessor({'a': 10})
+    results = [
+        proc.calculate_ratio(10, 0),
+        proc.fetch_key(123),
+        proc.fetch_key('a')
+    ]
+    return [r for r in results if r is not None]
+
+if __name__ == "__main__":
+    print(run_safe_sequence())
