@@ -1,31 +1,40 @@
-import time
-import functools
-import random
+from typing import Any, Callable, Generator, Iterable
 
-def retry_operation(retries=3, backoff=1.5, exceptions=(Exception,)):
-    def decorator(func):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            attempt = 0
-            delay = backoff
-            while attempt < retries:
-                try:
-                    return func(*args, **kwargs)
-                except exceptions as e:
-                    attempt += 1
-                    if attempt == retries:
-                        raise e
-                    time.sleep(delay + random.uniform(0, 0.1))
-                    delay *= backoff
-        return wrapper
-    return decorator
+class ValidationRule:
+    def __init__(self, predicate: Callable[[Any], bool], message: str):
+        self.predicate = predicate
+        self.message = message
 
-def validate_network_call(func):
-    """Validates network connectivity state before execution"""
-    @functools.wraps(func)
-    def checker(*args, **kwargs):
-        if not hasattr(checker, 'online') or not checker.online:
-            # Simulating quick socket check logic
-            checker.online = True
-        return func(*args, **kwargs)
-    return checker
+    def __and__(self, other: "ValidationRule") -> "ValidationRule":
+        return ValidationRule(
+            lambda x: self.predicate(x) and other.predicate(x),
+            f"{self.message} & {other.message}"
+        )
+
+    def __call__(self, value: Any) -> bool:
+        return self.predicate(value)
+
+def is_type(target_type: type) -> ValidationRule:
+    return ValidationRule(
+        lambda x: isinstance(x, target_type),
+        f"type=={target_type.__name__}"
+    )
+
+def in_range(low: float, high: float) -> ValidationRule:
+    return ValidationRule(
+        lambda x: isinstance(x, (int, float)) and low <= x <= high,
+        f"{low}<=val<={high}"
+    )
+
+def validate_and_process(
+    source: Iterable[Any],
+    rule: ValidationRule,
+    processor: Callable[[Any], Any],
+    on_error: Callable[[Any, str], Any] | None = None
+) -> Generator[Any, None, None]:
+    """Main processing loop validating inputs against composed rules."""
+    for item in source:
+        if rule(item):
+            yield processor(item)
+        elif on_error:
+            yield on_error(item, f"Failed rule: {rule.message}")
