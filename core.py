@@ -1,49 +1,50 @@
 import functools
-from typing import Any, Callable, Dict, List, Optional, Tuple
+import types
+from typing import Callable, Any, List
 
 
-class FastMemoEngine:
-    """High-performance bitmask ring-buffer memoizer for core utility operations."""
+class CorePipeline:
+    """High-performance processing pipeline with dynamic bytecode synthesis."""
 
-    __slots__ = ("_size", "_mask", "_keys", "_values")
+    __slots__ = ("_stages", "_fused_kernel", "_fast_path")
 
-    def __init__(self, power_of_two: int = 256):
-        if power_of_two <= 0 or (power_of_two & (power_of_two - 1)) != 0:
-            raise ValueError("Size must be a positive power of two")
-        self._size = power_of_two
-        self._mask = power_of_two - 1
-        self._keys: List[Optional[Tuple[Any, ...]]] = [None] * self._size
-        self._values: List[Any] = [None] * self._size
+    def __init__(self, *stages: Callable[[Any], Any]):
+        self._stages: List[Callable[[Any], Any]] = list(stages)
+        self._fused_kernel: Callable[[Any], Any] | None = None
+        self._fast_path = None
+        if stages:
+            self._fuse_stages()
 
-    def memoize(self, func: Callable[..., Any]) -> Callable[..., Any]:
-        """Wraps a pure function with fixed-slot array cache lookup."""
-        keys = self._keys
-        values = self._values
-        mask = self._mask
+    def add_stage(self, func: Callable[[Any], Any]) -> "CorePipeline":
+        self._stages.append(func)
+        self._fused_kernel = None
+        return self
 
-        @functools.wraps(func)
-        def wrapper(*args: Any) -> Any:
-            slot = hash(args) & mask
-            if keys[slot] == args:
-                return values[slot]
-            result = func(*args)
-            keys[slot] = args
-            values[slot] = result
-            return result
+    def _fuse_stages() -> None:
+        if not self._stages:
+            self._fused_kernel = lambda x: x
+            return
 
-        def clear() -> None:
-            for i in range(self._size):
-                keys[i] = None
-                values[i] = None
+        ns = {f"_f{i}": fn for i, fn in enumerate(self._stages)}
+        expr = "val"
+        for i in range(len(self._stages)):
+            expr = f"_f{i}({expr})"
 
-        setattr(wrapper, "clear_cache", clear)
-        return wrapper
+        code_str = f"def _kernel(val):\n    return {expr}\n"
+        compiled = compile(code_str, "<fused_kernel>", "exec")
+        kernel_ns = {}
+        exec(compiled, ns, kernel_ns)
+        self._fused_kernel = kernel_ns["_kernel"]
 
+    def run(self, payload: Any) -> Any:
+        if self._fused_kernel is None:
+            self._fuse_stages()
+        return self._fused_kernel(payload)
 
-def fast_batch_transform(items: List[Any], transform_fn: Callable[[Any], Any]) -> List[Any]:
-    """Applies transformation using pre-allocated result lists for performance."""
-    length = len(items)
-    result = [None] * length
-    for idx in range(length):
-        result[idx] = transform_fn(items[idx])
-    return result
+    def run_batch(self, items: List[Any]) -> List[Any]:
+        kernel = self._fused_kernel
+        if kernel is None:
+            self._fuse_stages()
+            kernel = self._fused_kernel
+
+        return [kernel(item) for item in items]
