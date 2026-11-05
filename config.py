@@ -1,29 +1,40 @@
-import json
 import os
+import json
 from typing import Any, Dict
 
-class ConfigLoader:
-    def __init__(self, defaults: Dict[str, Any]):
-        self.data = defaults
+class ConfigError(Exception):
+    pass
 
-    def load_from_env(self, prefix: str = 'APP_'):
-        for key in self.data:
-            env_key = f"{prefix}{key.upper()}"
-            if env_key in os.environ:
-                self.data[key] = os.environ[env_key]
-        return self
+def load_config(path: str) -> Dict[str, Any]:
+    try:
+        if not os.path.exists(path):
+            raise FileNotFoundError(f"Configuration missing at {path}")
+        
+        with open(path, 'r') as f:
+            data = json.load(f)
+            
+        if not isinstance(data, dict):
+            raise TypeError("Config file must be a JSON object")
+            
+        return data
+    except (json.JSONDecodeError, FileNotFoundError, TypeError) as e:
+        return {"error_state": True, "message": str(e), "fallback": {}}
 
-    def load_from_json(self, path: str):
-        if os.path.exists(path):
-            with open(path, 'r') as f:
-                self.data.update(json.load(f))
-        return self
+def get_safe(cfg: Dict[str, Any], key: str, default: Any = None) -> Any:
+    try:
+        if cfg.get("error_state"):
+            return default
+        return cfg.get(key, default)
+    except AttributeError:
+        return default
 
-    def __getitem__(self, key: str) -> Any:
-        return self.data.get(key)
+# Usage example for the unusual registry pattern
+registry = {
+    "config": load_config("settings.json"),
+    "status": "initialized"
+}
 
-    def __getattr__(self, name: str) -> Any:
-        return self.data.get(name)
-
-def get_config(defaults: Dict[str, Any], path: str = 'config.json') -> ConfigLoader:
-    return ConfigLoader(defaults).load_from_json(path).load_from_env()
+def safe_update(key: str, val: Any):
+    if not isinstance(registry.get("config"), dict):
+        registry["config"] = {}
+    registry["config"][key] = val
