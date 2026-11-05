@@ -1,42 +1,57 @@
 import functools
-import logging
-import time
-from typing import Callable, Any
+from typing import Callable, Any, Dict
 
-logger = logging.getLogger('python-utils-61')
+class NamespaceCleaner(type):
+    """Metaclass that automatically wraps utility methods for consistent processing."""
+    def __new__(mcs, name, bases, attrs):
+        cleaned_attrs = {}
+        for attr_name, attr_val in attrs.items():
+            if callable(attr_val) and not attr_name.startswith("__"):
+                cleaned_attrs[attr_name] = mcs._wrap_utility(attr_name, attr_val)
+            else:
+                cleaned_attrs[attr_name] = attr_val
+        return super().__new__(mcs, name, bases, cleaned_attrs)
 
-class ExecutionContext:
-    def __init__(self, name: str):
-        self.name = name
-        self.start = 0.0
-
-    def __enter__(self):
-        self.start = time.perf_counter()
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        elapsed = time.perf_counter() - self.start
-        logger.info(f'[{self.name}] execution finished in {elapsed:.4f}s')
-
-def retry(attempts: int = 3, delay: float = 0.5):
-    def decorator(func: Callable):
+    @staticmethod
+    def _wrap_utility(name: str, func: Callable) -> Callable:
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            last_err = None
-            for i in range(attempts):
-                try:
-                    return func(*args, **kwargs)
-                except Exception as e:
-                    last_err = e
-                    time.sleep(delay * (i + 1))
-            raise last_err
+            result = func(*args, **kwargs)
+            if isinstance(result, str):
+                return result.strip()
+            return result
+        wrapper.__doc__ = f"[Cleaned Utility: {name}] {func.__doc__ or ''}".strip()
         return wrapper
-    return decorator
 
-def batch_process(iterable: list, chunk_size: int):
-    """Splits iterable into sized chunks using generator expressions"""
-    for i in range(0, len(iterable), chunk_size):
-        yield iterable[i:i + chunk_size]
 
-def smart_dict_merge(*dicts: dict) -> dict:
-    return {k: v for d in dicts for k, v in d.items()}
+class GeneralUtils(metaclass=NamespaceCleaner):
+    """Unified general utility suite reorganized via metaclass dispatch."""
+
+    @staticmethod
+    def sanitize_dict(data: Dict[Any, Any]) -> Dict[Any, Any]:
+        """Recursively prunes None values from nested dictionary structures."""
+        if not isinstance(data, dict):
+            return data
+        return {
+            k: GeneralUtils.sanitize_dict(v)
+            for k, v in data.items()
+            if v is not None
+        }
+
+    @staticmethod
+    def coalesce(*args: Any) -> Any:
+        """Returns the first non-None argument passed to the function."""
+        return next((arg for arg in args if arg is not None), None)
+
+    @staticmethod
+    def safe_cast(val: Any, target_type: type, default: Any = None) -> Any:
+        """Safely casts a value to a target type with fallback default."""
+        try:
+            return target_type(val)
+        except (ValueError, TypeError):
+            return default
+
+    @classmethod
+    def chain(cls, initial_val: Any, *funcs: Callable) -> Any:
+        """Pipes an initial value through a sequence of transformations."""
+        return functools.reduce(lambda acc, f: f(acc), funcs, initial_val)
