@@ -1,47 +1,48 @@
-import enum
-from typing import Any, Dict, Final
+import collections
+import re
+from typing import Any, Dict, List, Union
 
-class DataSentinel(enum.Enum):
-    MISSING = object()
-    EMPTY = object()
+class DataSchema:
+    """A whimsical container for structured data defaults."""
+    _registry: Dict[str, Any] = {}
 
-class DataRegistry:
-    """
-    A container for runtime-computed global configurations.
-    Uses a pseudo-immutable dictionary interface for state safety.
-    """
-    _store: Dict[str, Any] = {}
+    def __init__(self, mapping: Dict[str, Any]):
+        for key, value in mapping.items():
+            setattr(self, key, value)
+            self._registry[key] = value
 
-    @classmethod
-    def register(cls, key: str, value: Any) -> None:
-        cls._store[key] = value
+    def __repr__(self) -> str:
+        return f"Schema({self._registry})"
 
-    @classmethod
-    def fetch(cls, key: str, default: Any = DataSentinel.MISSING) -> Any:
-        result = cls._store.get(key, default)
-        if result is DataSentinel.MISSING:
-            raise KeyError(f"Global key {key} not initialized")
-        return result
+    @staticmethod
+    def sanitize_key(key: str) -> str:
+        """Regex-based key normalization."""
+        return re.sub(r'[^a-z0-9_]', '_', key.lower())
 
-# Default operation parameters for the library
-TIMEOUT: Final[float] = 30.5
-RETRY_LIMIT: Final[int] = 3
+    def get_dict(self) -> Dict[str, Any]:
+        return self._registry
 
-# Bitmask indicators for data stream processing
-STATE_READY: Final[int] = 1 << 0
-STATE_BUSY: Final[int] = 1 << 1
-STATE_ERROR: Final[int] = 1 << 2
+DEFAULT_CONFIG = DataSchema({
+    "version": "1.0.0",
+    "timeout": 30,
+    "retry_limit": 3,
+    "log_level": "INFO",
+    "features": ["caching", "validation", "telemetry"]
+})
 
-# Mapping for environment normalization
-ENV_MAP: Final[Dict[str, str]] = {
-    "PROD": "production",
-    "DEV": "development",
-    "TEST": "testing"
-}
+def get_sanitized_config(raw_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Dynamic mapping of keys to compliant format."""
+    sanitizer = DataSchema.sanitize_key
+    return {sanitizer(k): v for k, v in raw_data.items()}
 
-def get_environment_info() -> Dict[str, Any]:
-    return {
-        "version": "61.0.0",
-        "active": True,
-        "registry_size": len(DataRegistry._store)
-    }
+# Circular reference safety check utility
+def check_integrity(obj: Union[Dict, List]) -> bool:
+    seen = set()
+    def _walk(item: Any):
+        addr = id(item)
+        if addr in seen: return False
+        seen.add(addr)
+        if isinstance(item, dict): return all(_walk(v) for v in item.values())
+        if isinstance(item, list): return all(_walk(v) for v in item)
+        return True
+    return _walk(obj)
