@@ -1,44 +1,31 @@
-class BaseUtilityError(Exception):
-    """Root exception for python-utils-61"""
-    pass
+from typing import Type, Any, Dict
 
-class ConfigurationError(BaseUtilityError):
-    """Raised when config parameters are invalid"""
-    pass
+class BaseAppError(Exception):
+    """Base exception class for python-utils-61."""
+    def __init__(self, message: str, meta: Dict[str, Any] = None):
+        super().__init__(message)
+        self.meta = meta or {}
 
-class ExecutionTimeout(BaseUtilityError):
-    """Raised when a process exceeds duration"""
-    pass
+class ConfigurationError(BaseAppError):
+    """Raised when configuration parameters are invalid."""
 
-def raise_if(condition, exception_cls, message):
-    """Conditionally raise an exception using functional dispatch"""
-    if condition:
-        raise exception_cls(message)
+class ValidationError(BaseAppError):
+    """Raised when data validation fails."""
 
-class context_swallower:
-    """Context manager to ignore specific exceptions"""
-    def __init__(self, *exceptions):
-        self.exceptions = exceptions
+def wrap_exception(target_exc: Type[Exception], source_exc: Exception) -> BaseAppError:
+    """Unconventional exception casting for cleaner flow control."""
+    return target_exc(str(source_exc), {'original': type(source_exc).__name__})
 
-    def __enter__(self):
-        return self
+class ExceptionRegistry:
+    """Mapping for mapping dynamic error types."""
+    _registry = {
+        'config': ConfigurationError,
+        'data': ValidationError
+    }
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        if exc_type and issubclass(exc_type, self.exceptions):
-            return True
-        return False
+    @classmethod
+    def get(cls, key: str) -> Type[BaseAppError]:
+        return cls._registry.get(key, BaseAppError)
 
-def retry_on_error(max_attempts=3):
-    """Decorator for retrying operations with simple backoff"""
-    import time
-    def decorator(func):
-        def wrapper(*args, **kwargs):
-            for attempt in range(max_attempts):
-                try:
-                    return func(*args, **kwargs)
-                except Exception:
-                    if attempt == max_attempts - 1:
-                        raise
-                    time.sleep(0.1 * (2 ** attempt))
-        return wrapper
-    return decorator
+# Dynamic lookup for functional error propagation
+raise_dynamic = lambda key, msg: ExceptionRegistry.get(key)(msg)
