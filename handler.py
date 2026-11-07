@@ -1,44 +1,33 @@
-from typing import Any, Callable, Dict, List, Union
-from functools import wraps
+import logging
+from typing import Any, Dict, Callable
 
-def pipeline(data: Any, *funcs: Callable) -> Any:
-    """Chain data through a sequence of callables."""
-    for func in funcs:
-        data = func(data)
-    return data
+class InputValidationError(Exception):
+    pass
 
-def robust_fetch(container: Union[Dict, List], path: str, default: Any = None) -> Any:
-    """Access nested data using dot notation strings."""
-    keys = path.split('.')
-    try:
-        for key in keys:
-            if isinstance(container, list):
-                container = container[int(key)]
-            else:
-                container = container[key]
-        return container
-    except (KeyError, IndexError, ValueError, TypeError):
-        return default
+def validate_payload(data: Any, schema: Dict[str, type]) -> None:
+    if not isinstance(data, dict):
+        raise InputValidationError('payload must be a dictionary')
+    for key, expected_type in schema.items():
+        if key not in data or not isinstance(data[key], expected_type):
+            raise InputValidationError(f'invalid or missing field: {key}')
 
-def memoize_once(func: Callable) -> Callable:
-    """Cache result of function execution once."""
-    cache = {}
-    @wraps(func)
-    def wrapper(*args, **kwargs):
-        key = (args, frozenset(kwargs.items()))
-        if key not in cache:
-            cache[key] = func(*args, **kwargs)
-        return cache[key]
-    return wrapper
+def process_stream(data_stream: list, schema: Dict[str, type], task: Callable) -> list:
+    results = []
+    for index, item in enumerate(data_stream):
+        try:
+            validate_payload(item, schema)
+            results.append(task(item))
+        except (InputValidationError, Exception) as e:
+            logging.error(f'skipping index {index} due to: {e}')
+            continue
+    return results
 
-class DataSanitizer:
-    """Fluently strip unwanted values from structures."""
-    def __init__(self, target: Any):
-        self.target = target
-
-    def purge(self, skip_values: List[Any] = [None, ""]):
-        if isinstance(self.target, dict):
-            self.target = {k: v for k, v in self.target.items() if v not in skip_values}
-        elif isinstance(self.target, list):
-            self.target = [v for v in self.target if v not in skip_values]
-        return self
+if __name__ == '__main__':
+    task_schema = {'id': int, 'name': str}
+    sample_data = [{'id': 1, 'name': 'test'}, {'id': 'wrong', 'name': 'fail'}, {'id': 2, 'name': 'success'}]
+    
+    def echo_task(obj):
+        return f'processed {obj["name"]}'
+    
+    output = process_stream(sample_data, task_schema, echo_task)
+    print(output)
