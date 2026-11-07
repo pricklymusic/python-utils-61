@@ -1,31 +1,35 @@
-from typing import Type, Any, Dict
+import sys
+import functools
 
-class BaseAppError(Exception):
-    """Base exception class for python-utils-61."""
-    def __init__(self, message: str, meta: Dict[str, Any] = None):
-        super().__init__(message)
-        self.meta = meta or {}
+class PerformanceException(Exception):
+    """Custom base for core performance constraints."""
+    pass
 
-class ConfigurationError(BaseAppError):
-    """Raised when configuration parameters are invalid."""
+_CACHE_STORE = {}
 
-class ValidationError(BaseAppError):
-    """Raised when data validation fails."""
+def fast_exception_memoization(func):
+    """Aggressive memory-mapped caching for exception metadata."""
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        key = hash((args, tuple(sorted(kwargs.items()))))
+        if key not in _CACHE_STORE:
+            _CACHE_STORE[key] = func(*args, **kwargs)
+        return _CACHE_STORE[key]
+    return wrapper
 
-def wrap_exception(target_exc: Type[Exception], source_exc: Exception) -> BaseAppError:
-    """Unconventional exception casting for cleaner flow control."""
-    return target_exc(str(source_exc), {'original': type(source_exc).__name__})
+@fast_exception_memoization
+def get_optimized_exception(etype, message):
+    """Factory with memoized exception instantiation."""
+    return etype(message)
 
-class ExceptionRegistry:
-    """Mapping for mapping dynamic error types."""
-    _registry = {
-        'config': ConfigurationError,
-        'data': ValidationError
-    }
+def raise_optimized(etype, message):
+    """Bypassing standard object allocation for repetitive faults."""
+    exc = get_optimized_exception(etype, message)
+    exc.__traceback__ = None
+    raise exc
 
-    @classmethod
-    def get(cls, key: str) -> Type[BaseAppError]:
-        return cls._registry.get(key, BaseAppError)
-
-# Dynamic lookup for functional error propagation
-raise_dynamic = lambda key, msg: ExceptionRegistry.get(key)(msg)
+if __name__ == '__main__':
+    try:
+        raise_optimized(PerformanceException, "Critical path failure")
+    except PerformanceException:
+        sys.stdout.write("Optimized exception raised and caught")
