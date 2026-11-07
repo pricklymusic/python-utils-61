@@ -1,40 +1,36 @@
-from typing import Any, Callable, Generator, Iterable
+import functools
 
-class ValidationRule:
-    def __init__(self, predicate: Callable[[Any], bool], message: str):
-        self.predicate = predicate
-        self.message = message
+class memoize_validator:
+    """Custom caching decorator for heavy input validation logic."""
+    def __init__(self, func):
+        self.func = func
+        self.cache = {}
 
-    def __and__(self, other: "ValidationRule") -> "ValidationRule":
-        return ValidationRule(
-            lambda x: self.predicate(x) and other.predicate(x),
-            f"{self.message} & {other.message}"
-        )
+    def __call__(self, *args, **kwargs):
+        key = (args, tuple(sorted(kwargs.items())))
+        if key not in self.cache:
+            self.cache[key] = self.func(*args, **kwargs)
+        return self.cache[key]
 
-    def __call__(self, value: Any) -> bool:
-        return self.predicate(value)
+@memoize_validator
+def is_prime(n):
+    if n < 2: return False
+    for i in range(2, int(n**0.5) + 1):
+        if n % i == 0:
+            return False
+    return True
 
-def is_type(target_type: type) -> ValidationRule:
-    return ValidationRule(
-        lambda x: isinstance(x, target_type),
-        f"type=={target_type.__name__}"
-    )
+def validate_batch(data_points):
+    """Batch validation using generator expression with cached lookups."""
+    return all(is_prime(x) for x in data_points)
 
-def in_range(low: float, high: float) -> ValidationRule:
-    return ValidationRule(
-        lambda x: isinstance(x, (int, float)) and low <= x <= high,
-        f"{low}<=val<={high}"
-    )
+class ValidatorRegistry:
+    def __init__(self):
+        self._registry = {}
 
-def validate_and_process(
-    source: Iterable[Any],
-    rule: ValidationRule,
-    processor: Callable[[Any], Any],
-    on_error: Callable[[Any, str], Any] | None = None
-) -> Generator[Any, None, None]:
-    """Main processing loop validating inputs against composed rules."""
-    for item in source:
-        if rule(item):
-            yield processor(item)
-        elif on_error:
-            yield on_error(item, f"Failed rule: {rule.message}")
+    def register(self, name, func):
+        self._registry[name] = func
+
+    def run_all(self, data):
+        results = {name: func(data) for name, func in self._registry.items()}
+        return results
