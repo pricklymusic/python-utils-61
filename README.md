@@ -1,57 +1,48 @@
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-
 # python-utils-61
 
-`python-utils-61` is a lightweight, dependency-free toolkit designed to streamline everyday Python development workflows. It provides optimized helpers for robust file operations, quick data transformation, and safe environment configuration handling.
+A comprehensive collection of production-ready Python utility functions designed to streamline daily development workflows. This library minimizes boilerplate code by providing robust, tested helpers for string manipulation, file system operations, and data validation.
 
 ## Features
 
-- **Atomic File Writes:** Prevent partial file corruption by writing data to temporary buffers before swapping.
-- **Dot-Notation Dict Queries:** Traverse and extract values from deeply nested JSON or dictionary objects using simple path strings.
-- **Human-Readable Formatting:** Quickly convert raw bytes, execution durations, and timestamps into clean display strings.
-- **Typed Environment Parser:** Load environment variables directly into typed Python primitives with built-in fallback defaults.
+*   **Robust Path Management**: Simplifies recursive directory traversal and file sanitization with cross-platform compatibility.
+*   **Data Transformation**: High-performance helpers for nested dictionary flattening and JSON-to-YAML schema conversion.
+*   **Time Utilities**: Simplified formatting for human-readable durations and ISO 8601 timestamp synchronization.
+*   **Safety Wrappers**: Decorators for automated retry logic and exception handling in network-heavy operations.
 
 ## Installation
 
-Install the package via `pip`:
+Install the package directly via pip:
 
 ```bash
 pip install python-utils-61
 ```
 
-Or install locally directly from source:
+For development mode, clone the repository and install requirements:
 
 ```bash
-git clone https://github.com/Developer/python-utils-61.git
+git clone https://github.com/developer/python-utils-61.git
 cd python-utils-61
-pip install .
+pip install -r requirements.txt
 ```
 
-## Quick Start
+## Basic Usage
+
+The library is designed with a flat import structure for quick integration into existing scripts.
 
 ```python
-from python_utils_61 import get_env, nested_get, format_bytes
+from pyutils import file_ops, text_format
 
-# Parse typed environment variables with defaults
-max_workers = get_env("MAX_WORKERS", default=4, cast=int)
+# Recursively fetch all .log files
+logs = file_ops.find_files(path="./logs", extension=".log")
 
-# Safely extract values from nested structures
-payload = {
-    "app": {
-        "services": {
-            "database": {"host": "localhost", "port": 5432}
-        }
-    }
-}
-db_host = nested_get(payload, "app.services.database.host", default="127.0.0.1")
+# Sanitize input strings for safe database entry
+clean_string = text_format.sanitize("  Hello, World! @2023  ")
 
-# Format metrics for output
-formatted_size = format_bytes(104857600)
-
-print(f"Workers: {max_workers} | Host: {db_host} | Memory: {formatted_size}")
-# Output: Workers: 4 | Host: localhost | Memory: 100.00 MB
+print(f"Found {len(logs)} log files. Cleaned string: {clean_string}")
 ```
 
 ## License
 
-Distributed under the MIT License. See `LICENSE` for details.
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+Distributed under the MIT License. See `LICENSE` for more information.
