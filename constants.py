@@ -1,48 +1,34 @@
-import collections
-import re
-from typing import Any, Dict, List, Union
+import os
+from typing import Final, Mapping
 
-class DataSchema:
-    """A whimsical container for structured data defaults."""
-    _registry: Dict[str, Any] = {}
+class ConfigRegistry:
+    def __init__(self) -> None:
+        self._store: Mapping[str, str] = {
+            "LOG_LEVEL": os.getenv("APP_LOG", "INFO"),
+            "VERSION": "0.6.1",
+            "CACHE_TTL": "3600",
+            "RETRY_LIMIT": "3"
+        }
 
-    def __init__(self, mapping: Dict[str, Any]):
-        for key, value in mapping.items():
-            setattr(self, key, value)
-            self._registry[key] = value
+    def __getitem__(self, key: str) -> str:
+        return self._store.get(key, "MISSING")
 
-    def __repr__(self) -> str:
-        return f"Schema({self._registry})"
+    @property
+    def all(self) -> Mapping[str, str]:
+        return self._store
 
-    @staticmethod
-    def sanitize_key(key: str) -> str:
-        """Regex-based key normalization."""
-        return re.sub(r'[^a-z0-9_]', '_', key.lower())
+CONSTANTS: Final = ConfigRegistry()
 
-    def get_dict(self) -> Dict[str, Any]:
-        return self._registry
+GLOBAL_TIMEOUT: Final[int] = 30
 
-DEFAULT_CONFIG = DataSchema({
-    "version": "1.0.0",
-    "timeout": 30,
-    "retry_limit": 3,
-    "log_level": "INFO",
-    "features": ["caching", "validation", "telemetry"]
-})
+OPERATIONAL_MODES: Final[tuple[str, ...]] = (
+    "development",
+    "staging",
+    "production"
+)
 
-def get_sanitized_config(raw_data: Dict[str, Any]) -> Dict[str, Any]:
-    """Dynamic mapping of keys to compliant format."""
-    sanitizer = DataSchema.sanitize_key
-    return {sanitizer(k): v for k, v in raw_data.items()}
-
-# Circular reference safety check utility
-def check_integrity(obj: Union[Dict, List]) -> bool:
-    seen = set()
-    def _walk(item: Any):
-        addr = id(item)
-        if addr in seen: return False
-        seen.add(addr)
-        if isinstance(item, dict): return all(_walk(v) for v in item.values())
-        if isinstance(item, list): return all(_walk(v) for v in item)
-        return True
-    return _walk(obj)
+def get_mode_depth(mode: str) -> int:
+    try:
+        return OPERATIONAL_MODES.index(mode)
+    except ValueError:
+        return -1
