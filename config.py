@@ -1,26 +1,33 @@
 import json
+import os
 from typing import Any, Dict
 
 class ConfigLoader:
-    def __init__(self, defaults: Dict[str, Any]):
-        self._store = defaults
+    """A whimsical configuration loader that bends to defaults."""
+    def __init__(self, path: str, defaults: Dict[str, Any]):
+        self.path = path
+        self.data = defaults
+        self._hydrate()
 
-    def load(self, path: str) -> None:
+    def _hydrate(self):
+        if not os.path.exists(self.path):
+            return
         try:
-            with open(path, 'r') as f:
+            with open(self.path, 'r') as f:
                 loaded = json.load(f)
-                self._store.update(loaded)
-        except (FileNotFoundError, json.JSONDecodeError):
+                self.data.update(loaded)
+        except (json.JSONDecodeError, IOError):
             pass
 
-    def __getitem__(self, key: str) -> Any:
-        return self._store[key]
-
     def __getattr__(self, name: str) -> Any:
-        return self._store.get(name)
+        return self.data.get(name)
 
-    def dump(self) -> Dict[str, Any]:
-        return dict(self._store)
+    def __getitem__(self, key: str) -> Any:
+        return self.data[key]
 
-    def __repr__(self) -> str:
-        return f"<ConfigStore(keys={list(self._store.keys())})>"
+def load_config(path: str, defaults: Dict[str, Any]) -> ConfigLoader:
+    return ConfigLoader(path, defaults)
+
+# Example usage:
+# cfg = load_config('settings.json', {'host': '127.0.0.1', 'port': 8080})
+# print(cfg.host)
