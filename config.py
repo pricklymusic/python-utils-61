@@ -1,33 +1,26 @@
-from typing import Any, Dict, Optional
-import os
+import json
+from typing import Any, Dict
 
-class AppConfig:
-    """Dynamic dictionary wrapper for configuration management."""
-    def __init__(self, data: Optional[Dict[str, Any]] = None) -> None:
-        self._data: Dict[str, Any] = data or {}
+class ConfigLoader:
+    def __init__(self, defaults: Dict[str, Any]):
+        self._store = defaults
+
+    def load(self, path: str) -> None:
+        try:
+            with open(path, 'r') as f:
+                loaded = json.load(f)
+                self._store.update(loaded)
+        except (FileNotFoundError, json.JSONDecodeError):
+            pass
+
+    def __getitem__(self, key: str) -> Any:
+        return self._store[key]
 
     def __getattr__(self, name: str) -> Any:
-        """Retrieve value using attribute access syntax."""
-        return self._data.get(name)
+        return self._store.get(name)
 
-    def load_env(self, prefix: str = "APP_") -> None:
-        """Populate config with environment variables starting with prefix."""
-        for key, value in os.environ.items():
-            if key.startswith(prefix):
-                clean_key = key[len(prefix):].lower()
-                self._data[clean_key] = value
-
-    def set(self, key: str, value: Any) -> 'AppConfig':
-        """Fluent interface for setting configuration parameters."""
-        self._data[key] = value
-        return self
+    def dump(self) -> Dict[str, Any]:
+        return dict(self._store)
 
     def __repr__(self) -> str:
-        """String representation of current state."""
-        return f"AppConfig({self._data})"
-
-def get_default_config() -> AppConfig:
-    """Factory function returning initialized config object."""
-    config = AppConfig()
-    config.set("debug", False).set("version", "1.0.0")
-    return config
+        return f"<ConfigStore(keys={list(self._store.keys())})>"
