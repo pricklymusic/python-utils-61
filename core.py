@@ -1,50 +1,34 @@
-import functools
-import types
-from typing import Callable, Any, List
+from typing import Callable, Any, TypeVar, Iterable, List
 
+T = TypeVar('T')
 
-class CorePipeline:
-    """High-performance processing pipeline with dynamic bytecode synthesis."""
+def compose_pipeline(*functions: Callable[[Any], Any]) -> Callable[[Any], Any]:
+    """Chain multiple callables into a single execution flow."""
+    def pipeline(data: Any) -> Any:
+        for func in functions:
+            data = func(data)
+        return data
+    return pipeline
 
-    __slots__ = ("_stages", "_fused_kernel", "_fast_path")
+def batch_process(items: Iterable[T], chunk_size: int) -> List[List[T]]:
+    """Split an iterable into manageable list chunks."""
+    items_list = list(items)
+    return [items_list[i:i + chunk_size] for i in range(0, len(items_list), chunk_size)]
 
-    def __init__(self, *stages: Callable[[Any], Any]):
-        self._stages: List[Callable[[Any], Any]] = list(stages)
-        self._fused_kernel: Callable[[Any], Any] | None = None
-        self._fast_path = None
-        if stages:
-            self._fuse_stages()
+def identity_mapper(x: T) -> T:
+    """Pass-through function for functional chains."""
+    return x
 
-    def add_stage(self, func: Callable[[Any], Any]) -> "CorePipeline":
-        self._stages.append(func)
-        self._fused_kernel = None
+class DataWrapper:
+    """A container for arbitrary data with type-hinted storage."""
+    def __init__(self, value: Any) -> None:
+        self._value: Any = value
+
+    def get(self) -> Any:
+        """Retrieve stored value."""
+        return self._value
+
+    def apply(self, func: Callable[[Any], Any]) -> 'DataWrapper':
+        """Mutate state via callable."""
+        self._value = func(self._value)
         return self
-
-    def _fuse_stages() -> None:
-        if not self._stages:
-            self._fused_kernel = lambda x: x
-            return
-
-        ns = {f"_f{i}": fn for i, fn in enumerate(self._stages)}
-        expr = "val"
-        for i in range(len(self._stages)):
-            expr = f"_f{i}({expr})"
-
-        code_str = f"def _kernel(val):\n    return {expr}\n"
-        compiled = compile(code_str, "<fused_kernel>", "exec")
-        kernel_ns = {}
-        exec(compiled, ns, kernel_ns)
-        self._fused_kernel = kernel_ns["_kernel"]
-
-    def run(self, payload: Any) -> Any:
-        if self._fused_kernel is None:
-            self._fuse_stages()
-        return self._fused_kernel(payload)
-
-    def run_batch(self, items: List[Any]) -> List[Any]:
-        kernel = self._fused_kernel
-        if kernel is None:
-            self._fuse_stages()
-            kernel = self._fused_kernel
-
-        return [kernel(item) for item in items]
