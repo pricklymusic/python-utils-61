@@ -1,36 +1,59 @@
-import functools
+"""Flexible schema and rule validation engine using operator chaining."""
 
-class memoize_validator:
-    """Custom caching decorator for heavy input validation logic."""
-    def __init__(self, func):
+from typing import Any, Callable, List, Tuple
+
+
+class Validator:
+    """Composable validator supporting bitwise operators for logical AND / OR."""
+
+    def __init__(self, func: Callable[[Any], bool], message: str = "Invalid value"):
         self.func = func
-        self.cache = {}
+        self.message = message
 
-    def __call__(self, *args, **kwargs):
-        key = (args, tuple(sorted(kwargs.items())))
-        if key not in self.cache:
-            self.cache[key] = self.func(*args, **kwargs)
-        return self.cache[key]
+    def __call__(self, value: Any) -> Tuple[bool, str]:
+        is_valid = bool(self.func(value))
+        return is_valid, ("" if is_valid else self.message)
 
-@memoize_validator
-def is_prime(n):
-    if n < 2: return False
-    for i in range(2, int(n**0.5) + 1):
-        if n % i == 0:
-            return False
-    return True
+    def __and__(self, other: "Validator") -> "Validator":
+        def combined(val: Any) -> bool:
+            ok1, _ = self(val)
+            ok2, _ = other(val)
+            return ok1 and ok2
 
-def validate_batch(data_points):
-    """Batch validation using generator expression with cached lookups."""
-    return all(is_prime(x) for x in data_points)
+        msg = f"{self.message} AND {other.message}"
+        return Validator(combined, msg)
 
-class ValidatorRegistry:
+    def __or__(self, other: "Validator") -> "Validator":
+        def combined(val: Any) -> bool:
+            ok1, _ = self(val)
+            ok2, _ = other(val)
+            return ok1 or ok2
+
+        msg = f"({self.message} OR {other.message})"
+        return Validator(combined, msg)
+
+
+class SchemaValidator:
+    """Reorganized schema validator using composite rule registries."""
+
     def __init__(self):
-        self._registry = {}
+        self._rules: List[Tuple[str, Validator]] = []
 
-    def register(self, name, func):
-        self._registry[name] = func
+    def add_rule(self, field: str, validator: Validator) -> "SchemaValidator":
+        self._rules.append((field, validator))
+        return self
 
-    def run_all(self, data):
-        results = {name: func(data) for name, func in self._registry.items()}
-        return results
+    def validate(self, data: dict) -> Tuple[bool, List[str]]:
+        errors = []
+        for field, validator in self._rules:
+            value = data.get(field)
+            ok, err = validator(value)
+            if not ok:
+                errors.append(f"Field '{field}': {err}")
+        return len(errors) == 0, errors
+
+
+is_str = Validator(lambda v: isinstance(v, str), "must be a string")
+is_int = Validator(lambda v: isinstance(v, int), "must be an integer")
+is_positive = Validator(lambda v: isinstance(v, (int, float)) and v > 0, "must be positive")
+not_empty = Validator(lambda v: hasattr(v, "__len__") and len(v) > 0, "cannot be empty")
