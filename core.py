@@ -1,26 +1,49 @@
-import logging
-from typing import Any, Callable, Dict
+import functools
+import itertools
+import time
+from typing import Any, Callable, Iterable, TypeVar
 
-def validate_input(data: Any, schema: Dict[str, type]) -> bool:
-    return isinstance(data, dict) and all(isinstance(data.get(k), v) for k, v in schema.items())
+T = TypeVar('T')
 
-def main_process(data_stream: list, schema: Dict[str, type], task: Callable) -> None:
-    logging.basicConfig(level=logging.INFO)
-    logger = logging.getLogger('processor')
-    
-    for entry in data_stream:
-        try:
-            if not validate_input(entry, schema):
-                logger.warning(f"Skipping malformed entry: {entry}")
-                continue
-                
-            result = task(entry)
-            logger.info(f"Processed result: {result}")
-        except Exception as e:
-            logger.error(f"Execution fault on {entry}: {e}")
+def compose(*functions: Callable[[Any], Any]) -> Callable[[Any], Any]:
+    return functools.reduce(lambda f, g: lambda x: f(g(x)), functions)
 
-if __name__ == '__main__':
-    schema_def = {'id': int, 'payload': str}
-    data_batch = [{'id': 1, 'payload': 'test'}, {'id': 'fail', 'payload': 'oops'}, {'id': 2, 'payload': 'data'}]
-    
-    main_process(data_batch, schema_def, lambda x: x['payload'].upper())
+def flatten(nested: Iterable[Any]) -> Iterable[Any]:
+    for item in nested:
+        if isinstance(item, (list, tuple)):
+            yield from flatten(item)
+        else:
+            yield item
+
+def throttle(seconds: float) -> Callable[[Callable[..., T]], Callable[..., T]]:
+    def decorator(func: Callable[..., T]) -> Callable[..., T]:
+        last_called = [0.0]
+        @functools.wraps(func)
+        def wrapper(*args: Any, **kwargs: Any) -> T:
+            elapsed = time.time() - last_called[0]
+            if elapsed < seconds:
+                time.sleep(seconds - elapsed)
+            result = func(*args, **kwargs)
+            last_called[0] = time.time()
+            return result
+        return wrapper
+    return decorator
+
+def batch(iterable: Iterable[T], n: int) -> Iterable[tuple[T, ...]]:
+    args = [iter(iterable)] * n
+    return zip(*args, strict=False)
+
+def memoize_with_expiry(ttl: int) -> Callable[[Callable[..., T]], Callable[..., T]]:
+    def decorator(func: Callable[..., T]) -> Callable[..., T]:
+        cache: dict[tuple[Any, ...], tuple[float, T]] = {}
+        @functools.wraps(func)
+        def wrapper(*args: Any, **kwargs: Any) -> T:
+            key = (args, tuple(sorted(kwargs.items())))
+            now = time.time()
+            if key in cache and now - cache[key][0] < ttl:
+                return cache[key][1]
+            result = func(*args, **kwargs)
+            cache[key] = (now, result)
+            return result
+        return wrapper
+    return decorator
