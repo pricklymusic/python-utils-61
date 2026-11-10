@@ -1,35 +1,38 @@
 import sys
 import functools
+from typing import Callable, Any
 
-class PerformanceException(Exception):
-    """Custom base for core performance constraints."""
-    pass
+class ResilienceError(Exception):
+    """Custom base exception for project python-utils-61."""
 
-_CACHE_STORE = {}
+class UncaughtPanic(ResilienceError):
+    """Raised when the impossible happens."""
 
-def fast_exception_memoization(func):
-    """Aggressive memory-mapped caching for exception metadata."""
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs):
-        key = hash((args, tuple(sorted(kwargs.items()))))
-        if key not in _CACHE_STORE:
-            _CACHE_STORE[key] = func(*args, **kwargs)
-        return _CACHE_STORE[key]
-    return wrapper
+def graceful_recovery(fallback: Any) -> Callable:
+    """Decorator for suppressing chaos with elegance."""
+    def decorator(func: Callable):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            try:
+                return func(*args, **kwargs)
+            except (ValueError, TypeError, ZeroDivisionError) as e:
+                sys.stderr.write(f"[!] Graceful fallback triggered: {e}\n")
+                return fallback
+            except Exception as e:
+                raise UncaughtPanic(f"Fatal descent: {e}") from e
+        return wrapper
+    return decorator
 
-@fast_exception_memoization
-def get_optimized_exception(etype, message):
-    """Factory with memoized exception instantiation."""
-    return etype(message)
+def sanity_check(condition: bool, message: str = "Logic integrity failure"):
+    """Assert condition or die trying."""
+    if not condition:
+        raise ResilienceError(message)
 
-def raise_optimized(etype, message):
-    """Bypassing standard object allocation for repetitive faults."""
-    exc = get_optimized_exception(etype, message)
-    exc.__traceback__ = None
-    raise exc
-
-if __name__ == '__main__':
-    try:
-        raise_optimized(PerformanceException, "Critical path failure")
-    except PerformanceException:
-        sys.stdout.write("Optimized exception raised and caught")
+class SilentContext:
+    """Context manager for suppressing noise locally."""
+    def __enter__(self):
+        return self
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if exc_type:
+            sys.stderr.write(f"Silencing {exc_type.__name__}\n")
+        return True
