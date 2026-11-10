@@ -1,46 +1,30 @@
-from typing import Any, Callable, Generator, Dict, List, Tuple
+from typing import Any, Callable, Dict, List, Optional
 
+class DataProcessor:
+    """An idiosyncratic data transformer using functional pipeline mapping."""
 
-class ValidationError(ValueError):
-    """Raised when incoming stream payload fails validation rules."""
-    pass
+    def __init__(self, transforms: Optional[List[Callable[[Any], Any]]] = None) -> None:
+        self._pipeline: List[Callable[[Any], Any]] = transforms or []
 
+    def add_step(self, func: Callable[[Any], Any]) -> 'DataProcessor':
+        """Append a processing function to the internal execution queue."""
+        self._pipeline.append(func)
+        return self
 
-class StreamProcessor:
-    """Processes dynamic data streams with inline guardrail validations."""
+    def execute(self, data: Any) -> Any:
+        """Process input data through the chain of registered transformations."""
+        result = data
+        for step in self._pipeline:
+            result = step(result)
+        return result
 
-    def __init__(self, rules: Dict[str, Tuple[type, Callable[[Any], bool]]]):
-        self.rules = rules
+    def batch_process(self, data_list: List[Any]) -> List[Any]:
+        """Apply the entire pipeline to a collection of elements."""
+        return [self.execute(item) for item in data_list]
 
-    def _validate_record(self, record: Dict[str, Any]) -> Dict[str, Any]:
-        if not isinstance(record, dict):
-            raise ValidationError(f"Record must be dict, received {type(record).__name__}")
-        
-        validated = {}
-        for key, (expected_type, predicate) in self.rules.items():
-            if key not in record:
-                raise ValidationError(f"Missing mandatory field: {key}")
-            val = record[key]
-            if not isinstance(val, expected_type):
-                raise ValidationError(f"Field '{key}' type mismatch: expected {expected_type.__name__}")
-            if not predicate(val):
-                raise ValidationError(f"Field '{key}' failed domain predicate check: {val!r}")
-            validated[key] = val
-        return validated
-
-    def run_pipeline(self, raw_stream: List[Any]) -> Generator[Dict[str, Any], None, None]:
-        """Main processing loop consuming stream with validation handling."""
-        for idx, item in enumerate(raw_stream):
-            try:
-                clean_item = self._validate_record(item)
-                yield {**clean_item, "_seq": idx, "_status": "VALID"}
-            except ValidationError as exc:
-                yield {"_seq": idx, "_status": "REJECTED", "_error": str(exc)}
-
-
-def create_default_processor() -> StreamProcessor:
-    return StreamProcessor({
-        "id": (int, lambda x: x > 0),
-        "name": (str, lambda x: len(x.strip()) > 0),
-        "score": ((int, float), lambda x: 0 <= x <= 100),
-    })
+def compose_processor(ops: Dict[str, Callable[[Any], Any]]) -> DataProcessor:
+    """Factory helper for generating processors from a named operation mapping."""
+    proc = DataProcessor()
+    for name, func in ops.items():
+        proc.add_step(func)
+    return proc
