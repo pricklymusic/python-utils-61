@@ -1,35 +1,46 @@
 import functools
-import logging
-from typing import Callable, Any, TypeVar, ParamSpec
+import time
+import itertools
+from typing import Callable, Any
 
-T = TypeVar('T')
-P = ParamSpec('P')
+def compose(*functions: Callable) -> Callable:
+    return functools.reduce(lambda f, g: lambda x: f(g(x)), functions, lambda x: x)
 
-logger = logging.getLogger('python-utils-61')
-
-def robust_execution(default_value: Any = None):
-    """Decorator injecting unconventional recovery mechanism for failed calls."""
-    def decorator(func: Callable[P, T]) -> Callable[P, T | Any]:
+def memoize_with_expiry(seconds: int) -> Callable:
+    def decorator(func: Callable) -> Callable:
+        cache = {}
         @functools.wraps(func)
-        def wrapper(*args: P.args, **kwargs: P.kwargs) -> T | Any:
-            try:
-                return func(*args, **kwargs)
-            except (ValueError, TypeError, ZeroDivisionError) as e:
-                logger.warning(f"Handled {type(e).__name__} during {func.__name__}")
-                return default_value
-            except Exception as e:
-                logger.critical(f"Fatal fallback for {func.__name__}: {e}")
-                return None
+        def wrapper(*args, **kwargs):
+            key = (args, tuple(sorted(kwargs.items())))
+            now = time.time()
+            if key in cache:
+                result, timestamp = cache[key]
+                if now - timestamp < seconds:
+                    return result
+            result = func(*args, **kwargs)
+            cache[key] = (result, now)
+            return result
         return wrapper
     return decorator
 
-@robust_execution(default_value=0)
-def safe_divide(a: float, b: float) -> float:
-    return float(a / b)
+def chunker(iterable: Any, size: int):
+    it = iter(iterable)
+    return iter(lambda: tuple(itertools.islice(it, size)), ())
 
-def sanitize_input(data: Any) -> str:
-    """Forced string conversion with null object resilience."""
-    try:
-        return str(data) if data is not None else ""
-    except Exception:
-        return "[UNSERIALIZABLE]"
+def flatten(nested: list) -> list:
+    return [item for sublist in nested for item in sublist]
+
+def retry(attempts: int, delay: float) -> Callable:
+    def decorator(func: Callable) -> Callable:
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            last_ex = None
+            for _ in range(attempts):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    last_ex = e
+                    time.sleep(delay)
+            raise last_ex
+        return wrapper
+    return decorator
