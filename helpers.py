@@ -1,40 +1,43 @@
-import collections
 import functools
+import itertools
+import time
 from typing import Any, Callable, Iterable, TypeVar
 
 T = TypeVar('T')
 
-class DataPipeline:
-    def __init__(self, data: Iterable[T]):
-        self._data = list(data)
+def retry_on_failure(retries: int = 3, delay: float = 0.5) -> Callable:
+    def decorator(func: Callable) -> Callable:
+        @functools.wraps(func)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            for i in range(retries):
+                try:
+                    return func(*args, **kwargs)
+                except Exception:
+                    if i == retries - 1:
+                        raise
+                    time.sleep(delay * (2 ** i))
+        return wrapper
+    return decorator
 
-    def pipe(self, func: Callable[[Iterable[T]], Iterable[T]]) -> 'DataPipeline':
-        self._data = list(func(self._data))
-        return self
+def chunk_iterator(data: Iterable[T], size: int) -> Iterable[list[T]]:
+    it = iter(data)
+    while True:
+        chunk = list(itertools.islice(it, size))
+        if not chunk:
+            break
+        yield chunk
 
-    def collect(self) -> list[T]:
-        return self._data
+def compose(*functions: Callable) -> Callable:
+    return functools.reduce(lambda f, g: lambda x: f(g(x)), functions)
 
-def compose(*functions: Callable[[Any], Any]) -> Callable[[Any], Any]:
-    def composition(x: Any) -> Any:
-        return functools.reduce(lambda acc, f: f(acc), functions, x)
-    return composition
+def pluck(items: Iterable[dict], key: str, default: Any = None) -> list[Any]:
+    return [item.get(key, default) for item in items]
 
-def flatten(items: Iterable[Any]) -> list[Any]:
-    result = []
+def smart_flatten(items: Iterable) -> list:
+    flat = []
     for item in items:
-        if isinstance(item, collections.abc.Iterable) and not isinstance(item, (str, bytes)):
-            result.extend(flatten(item))
+        if isinstance(item, (list, tuple, set)):
+            flat.extend(smart_flatten(item))
         else:
-            result.append(item)
-    return result
-
-def memoize_instance(func: Callable) -> Callable:
-    cache = {}
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs):
-        key = (args, tuple(sorted(kwargs.items())))
-        if key not in cache:
-            cache[key] = func(*args, **kwargs)
-        return cache[key]
-    return wrapper
+            flat.append(item)
+    return flat
