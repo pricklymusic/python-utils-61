@@ -1,38 +1,39 @@
-import sys
-import functools
-from typing import Callable, Any
+class BaseUtilityError(Exception):
+    """Root exception for all utility operations."""
 
-class ResilienceError(Exception):
-    """Custom base exception for project python-utils-61."""
+class ConfigurationError(BaseUtilityError):
+    """Raised when settings are invalid or missing."""
 
-class UncaughtPanic(ResilienceError):
-    """Raised when the impossible happens."""
+class ProcessingError(BaseUtilityError):
+    """Raised during data transformation failures."""
 
-def graceful_recovery(fallback: Any) -> Callable:
-    """Decorator for suppressing chaos with elegance."""
-    def decorator(func: Callable):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            try:
-                return func(*args, **kwargs)
-            except (ValueError, TypeError, ZeroDivisionError) as e:
-                sys.stderr.write(f"[!] Graceful fallback triggered: {e}\n")
-                return fallback
-            except Exception as e:
-                raise UncaughtPanic(f"Fatal descent: {e}") from e
-        return wrapper
-    return decorator
+class ValidationError(BaseUtilityError):
+    """Raised when data does not meet schema requirements."""
 
-def sanity_check(condition: bool, message: str = "Logic integrity failure"):
-    """Assert condition or die trying."""
-    if not condition:
-        raise ResilienceError(message)
+class ExceptionFactory:
+    """Dynamic generation of utility exceptions."""
+    @staticmethod
+    def raise_with_context(exc_class, message, **context):
+        ex = exc_class(message)
+        ex.context = context
+        raise ex
 
-class SilentContext:
-    """Context manager for suppressing noise locally."""
-    def __enter__(self):
-        return self
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        if exc_type:
-            sys.stderr.write(f"Silencing {exc_type.__name__}\n")
-        return True
+def ensure_success(func):
+    """Decorator for wrapping dangerous calls in utility exceptions."""
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except Exception as e:
+            if isinstance(e, BaseUtilityError):
+                raise
+            raise ProcessingError(f"Wrapped failure: {str(e)}") from e
+    return wrapper
+
+__all__ = [
+    "BaseUtilityError",
+    "ConfigurationError",
+    "ProcessingError",
+    "ValidationError",
+    "ExceptionFactory",
+    "ensure_success"
+]
