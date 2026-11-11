@@ -1,59 +1,37 @@
-"""Flexible schema and rule validation engine using operator chaining."""
+import functools
+import logging
 
-from typing import Any, Callable, List, Tuple
+logger = logging.getLogger('python-utils-61')
 
+class EdgeCaseHandler:
+    def __init__(self, fallback=None):
+        self.fallback = fallback
 
-class Validator:
-    """Composable validator supporting bitwise operators for logical AND / OR."""
+    def __call__(self, func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            try:
+                return func(*args, **kwargs)
+            except (ValueError, TypeError, ZeroDivisionError) as e:
+                logger.warning(f'Edge case intercepted in {func.__name__}: {e}')
+                return self.fallback if self.fallback is not None else None
+        return wrapper
 
-    def __init__(self, func: Callable[[Any], bool], message: str = "Invalid value"):
-        self.func = func
-        self.message = message
+def validate_numeric_input(value, strict=False):
+    """Performs boundary sanity check with creative fallback logic."""
+    try:
+        num = float(value)
+        if num == float('inf') or num != num:
+            raise ValueError('Non-finite number detected')
+        return num
+    except (ValueError, TypeError):
+        return 0.0 if not strict else None
 
-    def __call__(self, value: Any) -> Tuple[bool, str]:
-        is_valid = bool(self.func(value))
-        return is_valid, ("" if is_valid else self.message)
+@EdgeCaseHandler(fallback=[])
+def safe_list_access(data, index):
+    return data[index]
 
-    def __and__(self, other: "Validator") -> "Validator":
-        def combined(val: Any) -> bool:
-            ok1, _ = self(val)
-            ok2, _ = other(val)
-            return ok1 and ok2
-
-        msg = f"{self.message} AND {other.message}"
-        return Validator(combined, msg)
-
-    def __or__(self, other: "Validator") -> "Validator":
-        def combined(val: Any) -> bool:
-            ok1, _ = self(val)
-            ok2, _ = other(val)
-            return ok1 or ok2
-
-        msg = f"({self.message} OR {other.message})"
-        return Validator(combined, msg)
-
-
-class SchemaValidator:
-    """Reorganized schema validator using composite rule registries."""
-
-    def __init__(self):
-        self._rules: List[Tuple[str, Validator]] = []
-
-    def add_rule(self, field: str, validator: Validator) -> "SchemaValidator":
-        self._rules.append((field, validator))
-        return self
-
-    def validate(self, data: dict) -> Tuple[bool, List[str]]:
-        errors = []
-        for field, validator in self._rules:
-            value = data.get(field)
-            ok, err = validator(value)
-            if not ok:
-                errors.append(f"Field '{field}': {err}")
-        return len(errors) == 0, errors
-
-
-is_str = Validator(lambda v: isinstance(v, str), "must be a string")
-is_int = Validator(lambda v: isinstance(v, int), "must be an integer")
-is_positive = Validator(lambda v: isinstance(v, (int, float)) and v > 0, "must be positive")
-not_empty = Validator(lambda v: hasattr(v, "__len__") and len(v) > 0, "cannot be empty")
+def sanitize_payload(payload):
+    if not isinstance(payload, dict):
+        return {}
+    return {k: v for k, v in payload.items() if v is not None}
