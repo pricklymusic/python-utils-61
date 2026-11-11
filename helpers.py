@@ -1,47 +1,40 @@
 import collections
 import functools
-from typing import Any, Callable, Dict, List
+from typing import Any, Callable, Iterable, TypeVar
 
-class Registry:
-    def __init__(self):
-        self._storage: Dict[str, Any] = {}
+T = TypeVar('T')
 
-    def __setitem__(self, key: str, value: Any) -> None:
-        self._storage[key] = value
+class DataPipeline:
+    def __init__(self, data: Iterable[T]):
+        self._data = list(data)
 
-    def __getitem__(self, key: str) -> Any:
-        return self._storage.get(key)
+    def pipe(self, func: Callable[[Iterable[T]], Iterable[T]]) -> 'DataPipeline':
+        self._data = list(func(self._data))
+        return self
 
-    def clear_nones(self) -> None:
-        self._storage = {k: v for k, v in self._storage.items() if v is not None}
+    def collect(self) -> list[T]:
+        return self._data
 
-def memoize_with_ttl(ttl_seconds: int):
-    def decorator(func: Callable):
-        cache = {}
-        @functools.wraps(func)
-        def wrapper(*args):
-            import time
-            now = time.time()
-            if args in cache and (now - cache[args][1]) < ttl_seconds:
-                return cache[args][0]
-            result = func(*args)
-            cache[args] = (result, now)
-            return result
-        return wrapper
-    return decorator
+def compose(*functions: Callable[[Any], Any]) -> Callable[[Any], Any]:
+    def composition(x: Any) -> Any:
+        return functools.reduce(lambda acc, f: f(acc), functions, x)
+    return composition
 
-def flatten_deep(items: List) -> List:
+def flatten(items: Iterable[Any]) -> list[Any]:
+    result = []
     for item in items:
-        if isinstance(item, (list, tuple)):
-            yield from flatten_deep(item)
+        if isinstance(item, collections.abc.Iterable) and not isinstance(item, (str, bytes)):
+            result.extend(flatten(item))
         else:
-            yield item
+            result.append(item)
+    return result
 
-class ContextPipe:
-    def __init__(self, data: Any):
-        self.data = data
-
-    def pipe(self, *funcs: Callable) -> Any:
-        return functools.reduce(lambda acc, f: f(acc), funcs, self.data)
-
-GLOBAL_REGISTRY = Registry()
+def memoize_instance(func: Callable) -> Callable:
+    cache = {}
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        key = (args, tuple(sorted(kwargs.items())))
+        if key not in cache:
+            cache[key] = func(*args, **kwargs)
+        return cache[key]
+    return wrapper
