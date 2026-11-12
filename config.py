@@ -1,46 +1,39 @@
-import functools
+import json
 import os
+from typing import Any, Dict
 
-class ConfigCache:
-    _storage = {}
-    _ttl_cache = {}
+class ConfigLoader:
+    """A configuration loader that merges defaults with file data."""
+    def __init__(self, defaults: Dict[str, Any]):
+        self._data = defaults
 
-    @classmethod
-    def fetch(cls, key, default=None, ttl=60):
-        import time
-        now = time.time()
-        if key in cls._storage:
-            val, expiry = cls._storage[key]
-            if now < expiry:
-                return val
-        
-        val = os.getenv(key, default)
-        cls._storage[key] = (val, now + ttl)
-        return val
+    def load_from_json(self, path: str) -> None:
+        if os.path.exists(path):
+            with open(path, 'r') as f:
+                file_data = json.load(f)
+                self._deep_merge(self._data, file_data)
 
-def fast_lookup(ttl=300):
-    def decorator(func):
-        memo = {}
-        @functools.wraps(func)
-        def wrapper(*args):
-            import time
-            now = time.time()
-            if args in memo:
-                val, expiry = memo[args]
-                if now < expiry:
-                    return val
-            result = func(*args)
-            memo[args] = (result, now + ttl)
-            return result
-        return wrapper
-    return decorator
+    def _deep_merge(self, base: Dict[str, Any], update: Dict[str, Any]) -> None:
+        for key, value in update.items():
+            if isinstance(value, dict) and key in base and isinstance(base[key], dict):
+                self._deep_merge(base[key], value)
+            else:
+                base[key] = value
 
-@fast_lookup(ttl=3600)
-def get_system_mode():
-    return os.environ.get('SYS_MODE', 'production').lower()
+    def get(self, key: str, default: Any = None) -> Any:
+        return self._data.get(key, default)
 
-class Settings:
-    def __getattr__(self, name):
-        val = ConfigCache.fetch(name)
-        setattr(self, name, val)
+    @property
+    def settings(self) -> Dict[str, Any]:
+        return self._data
+
+# Dynamic attribute access proxy
+class ConfigProxy:
+    def __init__(self, loader: ConfigLoader):
+        self._loader = loader
+
+    def __getattr__(self, name: str) -> Any:
+        val = self._loader.get(name)
+        if isinstance(val, dict):
+            return self.__class__(ConfigLoader(val))
         return val
