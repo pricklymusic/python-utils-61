@@ -1,37 +1,58 @@
-import functools
-import logging
+import re
+from typing import Any, Callable
 
-logger = logging.getLogger('python-utils-61')
 
-class EdgeCaseHandler:
-    def __init__(self, fallback=None):
-        self.fallback = fallback
+class Validator:
+    """Composable validator with bitwise logic support."""
 
-    def __call__(self, func):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            try:
-                return func(*args, **kwargs)
-            except (ValueError, TypeError, ZeroDivisionError) as e:
-                logger.warning(f'Edge case intercepted in {func.__name__}: {e}')
-                return self.fallback if self.fallback is not None else None
-        return wrapper
+    def __init__(self, predicate: Callable[[Any], bool], message: str = "Validation failed"):
+        self.predicate = predicate
+        self.message = message
 
-def validate_numeric_input(value, strict=False):
-    """Performs boundary sanity check with creative fallback logic."""
-    try:
-        num = float(value)
-        if num == float('inf') or num != num:
-            raise ValueError('Non-finite number detected')
-        return num
-    except (ValueError, TypeError):
-        return 0.0 if not strict else None
+    def __call__(self, value: Any) -> bool:
+        try:
+            return bool(self.predicate(value))
+        except (TypeError, ValueError):
+            return False
 
-@EdgeCaseHandler(fallback=[])
-def safe_list_access(data, index):
-    return data[index]
+    def __and__(self, other: "Validator") -> "Validator":
+        return Validator(
+            lambda v: self(v) and other(v),
+            f"({self.message} AND {other.message})",
+        )
 
-def sanitize_payload(payload):
-    if not isinstance(payload, dict):
-        return {}
-    return {k: v for k, v in payload.items() if v is not None}
+    def __or__(self, other: "Validator") -> "Validator":
+        return Validator(
+            lambda v: self(v) or other(v),
+            f"({self.message} OR {other.message})",
+        )
+
+    def __invert__(self) -> "Validator":
+        return Validator(lambda v: not self(v), f"NOT ({self.message})")
+
+    def check(self, value: Any) -> tuple[bool, str]:
+        ok = self(value)
+        return ok, "" if ok else f"Validation failed: {self.message}"
+
+    def enforce(self, value: Any) -> Any:
+        ok, err = self.check(value)
+        if not ok:
+            raise ValueError(err)
+        return value
+
+
+def is_type(expected_type: type) -> Validator:
+    return Validator(lambda v: isinstance(v, expected_type), f"is instance of {expected_type.__name__}")
+
+
+def matches(pattern: str) -> Validator:
+    rx = re.compile(pattern)
+    return Validator(lambda v: isinstance(v, str) and bool(rx.search(v)), f"matches pattern {pattern}")
+
+
+def in_range(min_val: float, max_val: float) -> Validator:
+    return Validator(lambda v: min_val <= v <= max_val, f"value in range [{min_val}, {max_val}]")
+
+
+def is_email() -> Validator:
+    return matches(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
