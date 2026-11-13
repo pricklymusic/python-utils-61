@@ -1,56 +1,63 @@
-import os
-import sys
 import logging
+import sys
 from logging.handlers import RotatingFileHandler
-from typing import Optional, Tuple
+from pathlib import Path
+from typing import Optional
 
 
-class _RotationSpecParser:
-    """Parses human-readable rotation spec strings like '5MB:3' or '500KB:10'."""
-    UNITS = {'B': 1, 'KB': 1024, 'MB': 1024**2, 'GB': 1024**3}
+class DynamicEmojiFormatter(logging.Formatter):
+    """Custom formatter that prefixes log messages with contextual level emojis."""
+    
+    EMOJI_MAP = {
+        logging.DEBUG: "🐛",
+        logging.INFO: "ℹ️",
+        logging.WARNING: "⚠️",
+        logging.ERROR: "❌",
+        logging.CRITICAL: "🔥",
+    }
 
-    @classmethod
-    def parse(cls, spec: str) -> Tuple[int, int]:
-        parts = spec.upper().split(':')
-        size_str = parts[0].strip()
-        backup_count = int(parts[1]) if len(parts) > 1 else 3
-
-        for unit, multiplier in cls.UNITS.items():
-            if size_str.endswith(unit):
-                number = float(size_str[:-len(unit)])
-                return int(number * multiplier), backup_count
-        return int(size_str), backup_count
+    def format(self, record: logging.LogRecord) -> str:
+        icon = self.EMOJI_MAP.get(record.levelno, "📝")
+        original_msg = record.msg
+        record.msg = f"{icon} {original_msg}"
+        formatted = super().format(record)
+        record.msg = original_msg  # restore original message
+        return formatted
 
 
 def setup_rotating_logger(
     name: str = "app_logger",
-    log_file: str = "app.log",
-    rotation_spec: str = "2MB:5",
+    log_file: str = "logs/app.log",
+    max_bytes: int = 1_048_576,  # 1 MB default rotation trigger
+    backup_count: int = 5,
     level: int = logging.INFO,
-    fmt: Optional[str] = None
+    console_output: bool = True,
 ) -> logging.Logger:
-    """Configures and returns a logger featuring file rotation via dynamic size specs."""
-    max_bytes, backup_count = _RotationSpecParser.parse(rotation_spec)
-
+    """Configures and returns a logger instance equipped with size-based file rotation."""
     logger = logging.getLogger(name)
     logger.setLevel(level)
-    logger.handlers.clear()
 
-    default_fmt = "[%(asctime)s] [%(levelname)s] %(name)s: %(message)s"
-    formatter = logging.Formatter(fmt or default_fmt, datefmt="%Y-%m-%d %H:%M:%S")
+    if logger.handlers:
+        return logger
 
-    log_dir = os.path.dirname(log_file)
-    if log_dir:
-        os.makedirs(log_dir, exist_ok=True)
+    fmt = "[%(asctime)s] [%(levelname)s] %(name)s: %(message)s"
+    formatter = DynamicEmojiFormatter(fmt, datefmt="%Y-%m-%d %H:%M:%S")
+
+    log_path = Path(log_file)
+    log_path.parent.mkdir(parents=True, exist_ok=True)
 
     file_handler = RotatingFileHandler(
-        log_file, maxBytes=max_bytes, backupCount=backup_count, encoding="utf-8"
+        log_path,
+        maxBytes=max_bytes,
+        backupCount=backup_count,
+        encoding="utf-8",
     )
     file_handler.setFormatter(formatter)
     logger.addHandler(file_handler)
 
-    stream_handler = logging.StreamHandler(sys.stdout)
-    stream_handler.setFormatter(formatter)
-    logger.addHandler(stream_handler)
+    if console_output:
+        console_handler = logging.StreamHandler(sys.stdout)
+        console_handler.setFormatter(formatter)
+        logger.addHandler(console_handler)
 
     return logger
