@@ -1,46 +1,57 @@
-import sys
-from itertools import islice
-from typing import Any, Callable, Generator, Iterable, Sequence
+from typing import Any, Callable, Dict, Tuple, Generator
+from functools import reduce
+import itertools
 
-class FastBatchProcessor:
-    """High-performance batch processor using dynamic slot allocations and ring-buffered generators."""
-    __slots__ = ('_batch_size', '_transform', '_buffer')
 
-    def __init__(self, batch_size: int = 1024, transform: Callable[[Sequence[Any]], Any] | None = None):
-        self._batch_size = max(1, batch_size)
-        self._transform = transform or (lambda x: x)
-        self._buffer: list[Any] = [None] * self._batch_size
+class Pipeline:
+    """Lightweight wrapper for creative function composition and data transformation."""
 
-    def process_stream(self, stream: Iterable[Any]) -> Generator[Any, None, None]:
-        """Process an iterable in vectorized sliding batches with zero-reallocation slice projection."""
-        iterator = iter(stream)
-        size = self._batch_size
-        buf = self._buffer
-        transform = self._transform
+    def __init__(self, data: Any):
+        self._data = data
 
-        while True:
-            count = 0
-            for item in islice(iterator, size):
-                buf[count] = item
-                count += 1
-            
-            if not count:
-                break
-            
-            if count == size:
-                yield transform(buf)
-            else:
-                yield transform(buf[:count])
-            
-            buf[:count] = [None] * count
+    def pipe(self, func: Callable[..., Any], *args: Any, **kwargs: Any) -> "Pipeline":
+        """Pass current data through a transformation function."""
+        return Pipeline(func(self._data, *args, **kwargs))
 
-    def parallel_chunk_reduce(self, data: Sequence[Any], reducer: Callable[[Any, Any], Any], initial: Any) -> Any:
-        """Unrolled byte-strided reduction over flat sequence memory."""
-        acc = initial
-        size = len(data)
-        step = self._batch_size
-        
-        for i in range(0, size, step):
-            chunk = data[i:i + step]
-            acc = reducer(acc, self._transform(chunk))
-        return acc
+    def collect(self) -> Any:
+        """Unwrap and return the underlying transformed data."""
+        if isinstance(self._data, Generator):
+            return list(self._data)
+        return self._data
+
+
+def chunk_iterable(iterable: Any, size: int) -> Generator[Tuple[Any, ...], None, None]:
+    """Split any iterable into chunks of specified size using itertools."""
+    iterator = iter(iterable)
+    while chunk := tuple(itertools.islice(iterator, size)):
+        yield chunk
+
+
+def deep_merge_dicts(dict1: Dict[str, Any], dict2: Dict[str, Any]) -> Dict[str, Any]:
+    """Recursively merge two dictionaries into a fresh dictionary."""
+    result = dict(dict1)
+    for key, value in dict2.items():
+        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+            result[key] = deep_merge_dicts(result[key], value)
+        else:
+            result[key] = value
+    return result
+
+
+def flatten_nested(iterable: Any) -> Generator[Any, None, None]:
+    """Yield elements from arbitrary nested iterables, keeping strings intact."""
+    for item in iterable:
+        if isinstance(item, (list, tuple, set)):
+            yield from flatten_nested(item)
+        else:
+            yield item
+
+
+def safe_extract(data: Dict[str, Any], path: str, default: Any = None) -> Any:
+    """Extract nested dictionary values using dot-notation pathing."""
+    keys = path.split('.')
+    return reduce(
+        lambda val, key: val.get(key, default) if isinstance(val, dict) else default,
+        keys,
+        data
+    )
