@@ -1,39 +1,39 @@
-class BaseUtilityError(Exception):
-    """Root exception for all utility operations."""
+import functools
+import sys
 
-class ConfigurationError(BaseUtilityError):
-    """Raised when settings are invalid or missing."""
+class PerformanceOptimizedException(Exception):
+    """Base exception class with cached string representation."""
+    __slots__ = ('_msg', '_cached_str')
 
-class ProcessingError(BaseUtilityError):
-    """Raised during data transformation failures."""
+    def __init__(self, message: str):
+        self._msg = message
+        self._cached_str = None
 
-class ValidationError(BaseUtilityError):
-    """Raised when data does not meet schema requirements."""
+    def __str__(self) -> str:
+        if self._cached_str is None:
+            self._cached_str = f"[OptimizedErr] {self._msg}"
+        return self._cached_str
 
-class ExceptionFactory:
-    """Dynamic generation of utility exceptions."""
-    @staticmethod
-    def raise_with_context(exc_class, message, **context):
-        ex = exc_class(message)
-        ex.context = context
-        raise ex
+def fast_exception_handler(func):
+    """
+    Decorator to cache exception instantiation for repeat failure patterns.
+    Uses a local dictionary bypass for high-frequency error points.
+    """
+    _cache = {}
 
-def ensure_success(func):
-    """Decorator for wrapping dangerous calls in utility exceptions."""
+    @functools.wraps(func)
     def wrapper(*args, **kwargs):
         try:
             return func(*args, **kwargs)
         except Exception as e:
-            if isinstance(e, BaseUtilityError):
-                raise
-            raise ProcessingError(f"Wrapped failure: {str(e)}") from e
+            key = (func.__name__, type(e), str(e))
+            if key not in _cache:
+                _cache[key] = e
+            raise _cache[key] from None
     return wrapper
 
-__all__ = [
-    "BaseUtilityError",
-    "ConfigurationError",
-    "ProcessingError",
-    "ValidationError",
-    "ExceptionFactory",
-    "ensure_success"
-]
+class ResourceExhaustionError(PerformanceOptimizedException):
+    pass
+
+class ConfigValidationError(PerformanceOptimizedException):
+    pass
