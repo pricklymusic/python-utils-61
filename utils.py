@@ -1,26 +1,43 @@
-import time
 import functools
-import random
+import itertools
+import time
+from typing import Any, Callable, Iterable, TypeVar
 
-def retry_operation(retries=3, backoff_factor=0.5, exceptions=(Exception,)):
-    def decorator(func):
+T = TypeVar('T')
+
+def compose(*functions: Callable[[Any], Any]) -> Callable[[Any], Any]:
+    return functools.reduce(lambda f, g: lambda x: f(g(x)), functions)
+
+def chunks(iterable: Iterable[T], size: int) -> Iterable[list[T]]:
+    iterator = iter(iterable)
+    for first in iterator:
+        yield [first] + list(itertools.islice(iterator, size - 1))
+
+def throttled(interval: float) -> Callable[[Callable], Callable]:
+    def decorator(func: Callable) -> Callable:
+        last_called = [0.0]
         @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            attempt = 0
-            while attempt < retries:
-                try:
-                    return func(*args, **kwargs)
-                except exceptions as e:
-                    attempt += 1
-                    if attempt == retries:
-                        raise e
-                    sleep_time = backoff_factor * (2 ** (attempt - 1)) + random.uniform(0, 0.1)
-                    time.sleep(sleep_time)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            elapsed = time.time() - last_called[0]
+            if elapsed < interval:
+                time.sleep(interval - elapsed)
+            last_called[0] = time.time()
+            return func(*args, **kwargs)
         return wrapper
     return decorator
 
-class NetworkHandler:
-    @staticmethod
-    @retry_operation(retries=3, backoff_factor=1.0)
-    def execute_request(request_func, *args, **kwargs):
-        return request_func(*args, **kwargs)
+def deep_get(obj: dict, path: str, default: Any = None) -> Any:
+    try:
+        return functools.reduce(lambda d, key: d[key], path.split('.'), obj)
+    except (KeyError, TypeError):
+        return default
+
+def memoize_instance(func: Callable) -> Callable:
+    cache = {}
+    @functools.wraps(func)
+    def wrapper(self, *args: Any) -> Any:
+        key = (id(self), args)
+        if key not in cache:
+            cache[key] = func(self, *args)
+        return cache[key]
+    return wrapper
