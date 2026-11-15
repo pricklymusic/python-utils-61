@@ -1,42 +1,32 @@
 import functools
-import itertools
-import time
-from typing import Any, Callable, Iterable, TypeVar
+from typing import Any, Callable, Dict, List, Union
 
-T = TypeVar('T')
+def morph_data(data: Any, transformer: Callable[[Any], Any] = None) -> Any:
+    """Recursively traverse structures and apply transformations if provided."""
+    if isinstance(data, dict):
+        return {str(k): morph_data(v, transformer) for k, v in data.items()}
+    elif isinstance(data, (list, tuple, set)):
+        return [morph_data(i, transformer) for i in data]
+    return transformer(data) if transformer else data
 
-def retry_on_failure(retries: int = 3, delay: float = 0.5) -> Callable:
-    def decorator(func: Callable) -> Callable:
-        @functools.wraps(func)
-        def wrapper(*args: Any, **kwargs: Any) -> Any:
-            for i in range(retries):
-                try:
-                    return func(*args, **kwargs)
-                except Exception:
-                    if i == retries - 1:
-                        raise
-                    time.sleep(delay * (2 ** i))
-        return wrapper
-    return decorator
+def pipeline(data: Any, *funcs: Callable[[Any], Any]) -> Any:
+    """Functional chain execution for arbitrary data transformations."""
+    return functools.reduce(lambda d, f: f(d), funcs, data)
 
-def chunk_iterator(data: Iterable[T], size: int) -> Iterable[list[T]]:
-    it = iter(data)
-    while True:
-        chunk = list(itertools.islice(it, size))
-        if not chunk:
-            break
-        yield chunk
+def pluck(data: List[Dict], key: str, default: Any = None) -> List[Any]:
+    """Extract specific keys from a list of dictionaries."""
+    return [d.get(key, default) for d in data if isinstance(d, dict)]
 
-def compose(*functions: Callable) -> Callable:
-    return functools.reduce(lambda f, g: lambda x: f(g(x)), functions)
+def batch_process(items: List[Any], size: int = 10):
+    """Generator for chunking collections into smaller batches."""
+    for i in range(0, len(items), size):
+        yield items[i:i + size]
 
-def pluck(items: Iterable[dict], key: str, default: Any = None) -> list[Any]:
-    return [item.get(key, default) for item in items]
-
-def smart_flatten(items: Iterable) -> list:
+def smart_flatten(nested: List[Any]) -> List[Any]:
+    """Flatten nested lists using a depth-first traversal."""
     flat = []
-    for item in items:
-        if isinstance(item, (list, tuple, set)):
+    for item in nested:
+        if isinstance(item, (list, tuple)):
             flat.extend(smart_flatten(item))
         else:
             flat.append(item)
