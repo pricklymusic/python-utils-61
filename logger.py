@@ -2,31 +2,38 @@ import logging
 from logging.handlers import RotatingFileHandler
 import os
 
-def get_rotating_logger(name, log_file='app.log', max_bytes=1048576, backups=3):
-    """Generates a logger with rotation based on size."""
-    logger = logging.getLogger(name)
-    logger.setLevel(logging.DEBUG)
-    
-    if not logger.handlers:
+class LoggerManager:
+    def __init__(self, log_file='app.log', max_size=1024*1024, backups=3):
+        self.log_file = log_file
+        self.max_size = max_size
+        self.backups = backups
+        self.logger = logging.getLogger('python-utils-61')
+        self.logger.setLevel(logging.DEBUG)
+        self._setup()
+
+    def _setup(self):
+        if self.logger.hasHandlers():
+            return
+        
         formatter = logging.Formatter(
             '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
         )
         
         handler = RotatingFileHandler(
-            log_file, 
-            maxBytes=max_bytes, 
-            backupCount=backups
+            self.log_file, 
+            maxBytes=self.max_size, 
+            backupCount=self.backups
         )
         handler.setFormatter(formatter)
-        logger.addHandler(handler)
+        self.logger.addHandler(handler)
         
         console = logging.StreamHandler()
         console.setFormatter(formatter)
-        logger.addHandler(console)
-    
-    return logger
+        self.logger.addHandler(console)
 
-# Dynamic instantiation for internal modules
-if __name__ == '__main__':
-    log = get_rotating_logger('dev_logger')
-    log.info('System initialized with rotation strategy')
+    def get_logger(self):
+        return self.logger
+
+def setup_global_logger():
+    manager = LoggerManager()
+    return manager.get_logger()
