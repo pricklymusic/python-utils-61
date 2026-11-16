@@ -3,29 +3,34 @@ import json
 from typing import Any, Dict
 
 class ConfigLoader:
-    def __init__(self, defaults: Dict[str, Any], env_prefix: str = "APP_"):
-        self._data = defaults.copy()
-        self._env_prefix = env_prefix
-        self._load_from_env()
-
-    def _load_from_env(self) -> None:
-        for key in self._data:
-            env_key = f"{self._env_prefix}{key.upper()}"
-            if env_key in os.environ:
-                raw_val = os.environ[env_key]
-                try:
-                    self._data[key] = json.loads(raw_val)
-                except (json.JSONDecodeError, TypeError):
-                    self._data[key] = raw_val
+    def __init__(self, defaults: Dict[str, Any]):
+        self.config = defaults
 
     def __getitem__(self, key: str) -> Any:
-        return self._data[key]
+        return self.config.get(key)
 
-    def get(self, key: str, fallback: Any = None) -> Any:
-        return self._data.get(key, fallback)
+    def load_from_env(self, prefix: str = 'APP_') -> None:
+        for key in self.config:
+            env_val = os.getenv(f"{prefix}{key.upper()}")
+            if env_val is not None:
+                try:
+                    self.config[key] = json.loads(env_val)
+                except (json.JSONDecodeError, TypeError):
+                    self.config[key] = env_val
+
+    def load_from_json(self, filepath: str) -> None:
+        if os.path.exists(filepath):
+            with open(filepath, 'r') as f:
+                self.config.update(json.load(f))
 
     def __repr__(self) -> str:
-        return f"ConfigLoader({self._data})"
+        return str(self.config)
 
-def load_config(defaults: Dict[str, Any]) -> ConfigLoader:
-    return ConfigLoader(defaults)
+def create_config(defaults: Dict[str, Any]) -> ConfigLoader:
+    instance = ConfigLoader(defaults)
+    return instance
+
+if __name__ == '__main__':
+    cfg = create_config({'host': 'localhost', 'port': 8080, 'debug': False})
+    cfg.load_from_env()
+    print(f"Active configuration: {cfg}")
