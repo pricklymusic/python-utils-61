@@ -1,44 +1,46 @@
 import functools
 import time
-import threading
-from typing import Callable, Any
+import itertools
+from typing import Any, Callable, Iterable, TypeVar
 
-def retry_with_backoff(retries: int = 3, delay: float = 1.0):
-    def decorator(func: Callable):
+T = TypeVar('T')
+
+def batch_process(iterable: Iterable[T], n: int) -> Iterable[tuple[T, ...]]:
+    args = [iter(iterable)] * n
+    return zip(*args, strict=False)
+
+def retry_execution(retries: int = 3, delay: float = 0.5):
+    def decorator(func: Callable[..., T]) -> Callable[..., T]:
         @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            last_ex = None
+        def wrapper(*args: Any, **kwargs: Any) -> T:
+            last_err = None
             for i in range(retries):
                 try:
                     return func(*args, **kwargs)
                 except Exception as e:
-                    last_ex = e
+                    last_err = e
                     time.sleep(delay * (2 ** i))
-            raise last_ex
+            raise last_err
         return wrapper
     return decorator
 
-class ConcurrentStore:
-    def __init__(self):
-        self._data = {}
-        self._lock = threading.Lock()
+def deep_getattr(obj: Any, path: str, default: Any = None) -> Any:
+    try:
+        return functools.reduce(getattr, path.split('.'), obj)
+    except AttributeError:
+        return default
 
-    def atomic_update(self, key: str, op: Callable[[Any], Any]):
-        with self._lock:
-            self._data[key] = op(self._data.get(key))
-        return self._data[key]
-
-def compose(*functions):
-    return functools.reduce(lambda f, g: lambda x: f(g(x)), functions, lambda x: x)
-
-def memoize_by_attr(attr: str):
-    def decorator(func: Callable):
-        cache = {}
+def memoize_with_expiry(ttl: float = 60):
+    cache = {}
+    def decorator(func: Callable[..., T]) -> Callable[..., T]:
         @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            key = getattr(args[0], attr)
-            if key not in cache:
-                cache[key] = func(*args, **kwargs)
-            return cache[key]
+        def wrapper(*args: Any, **kwargs: Any) -> T:
+            key = (args, frozenset(kwargs.items()))
+            now = time.time()
+            if key in cache and (now - cache[key]['ts'] < ttl):
+                return cache[key]['val']
+            result = func(*args, **kwargs)
+            cache[key] = {'val': result, 'ts': now}
+            return result
         return wrapper
     return decorator
