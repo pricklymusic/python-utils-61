@@ -1,49 +1,49 @@
 import functools
 import itertools
-import time
+import operator
 from typing import Any, Callable, Iterable, TypeVar
 
 T = TypeVar('T')
 
-def compose(*functions: Callable[[Any], Any]) -> Callable[[Any], Any]:
-    return functools.reduce(lambda f, g: lambda x: f(g(x)), functions)
+def compose(*funcs: Callable) -> Callable:
+    """Right-to-left function composition using reduce."""
+    return lambda x: functools.reduce(lambda v, f: f(v), reversed(funcs), x)
 
-def flatten(nested: Iterable[Any]) -> Iterable[Any]:
-    for item in nested:
-        if isinstance(item, (list, tuple)):
-            yield from flatten(item)
-        else:
-            yield item
+def chunker(iterable: Iterable[T], n: int) -> Iterable[tuple[T, ...]]:
+    """Slicing iterables into fixed-size chunks."""
+    it = iter(iterable)
+    return iter(lambda: tuple(itertools.islice(it, n)), ())
 
-def throttle(seconds: float) -> Callable[[Callable[..., T]], Callable[..., T]]:
-    def decorator(func: Callable[..., T]) -> Callable[..., T]:
-        last_called = [0.0]
+def deep_get(obj: dict, path: str, default: Any = None) -> Any:
+    """Dot-notation key access for nested structures."""
+    try:
+        return functools.reduce(operator.getitem, path.split('.'), obj)
+    except (KeyError, TypeError, AttributeError):
+        return default
+
+def flip(func: Callable) -> Callable:
+    """Argument order reversal for binary functions."""
+    @functools.wraps(func)
+    def wrapper(a, b):
+        return func(b, a)
+    return wrapper
+
+def identity(x: T) -> T:
+    """Pass-through utility for pipeline placeholders."""
+    return x
+
+def memoize_timed(ttl: int) -> Callable:
+    """Simple TTL-based cache decorator logic."""
+    def decorator(func: Callable) -> Callable:
+        cache = {}
         @functools.wraps(func)
-        def wrapper(*args: Any, **kwargs: Any) -> T:
-            elapsed = time.time() - last_called[0]
-            if elapsed < seconds:
-                time.sleep(seconds - elapsed)
-            result = func(*args, **kwargs)
-            last_called[0] = time.time()
-            return result
-        return wrapper
-    return decorator
-
-def batch(iterable: Iterable[T], n: int) -> Iterable[tuple[T, ...]]:
-    args = [iter(iterable)] * n
-    return zip(*args, strict=False)
-
-def memoize_with_expiry(ttl: int) -> Callable[[Callable[..., T]], Callable[..., T]]:
-    def decorator(func: Callable[..., T]) -> Callable[..., T]:
-        cache: dict[tuple[Any, ...], tuple[float, T]] = {}
-        @functools.wraps(func)
-        def wrapper(*args: Any, **kwargs: Any) -> T:
-            key = (args, tuple(sorted(kwargs.items())))
+        def wrapper(*args):
+            import time
             now = time.time()
-            if key in cache and now - cache[key][0] < ttl:
-                return cache[key][1]
-            result = func(*args, **kwargs)
-            cache[key] = (now, result)
+            if args in cache and (now - cache[args][1]) < ttl:
+                return cache[args][0]
+            result = func(*args)
+            cache[args] = (result, now)
             return result
         return wrapper
     return decorator
