@@ -1,36 +1,38 @@
-import os
-from typing import Any, Dict, Optional, Union
+import functools
+import sys
 
-class ConfigStore:
-    """A magical bag for holding configuration parameters."""
-    def __init__(self, defaults: Optional[Dict[str, Any]] = None) -> None:
-        self._data: Dict[str, Any] = defaults or {}
+class ConfigCache:
+    _storage = {}
 
-    def get(self, key: str, fallback: Any = None) -> Any:
-        """Retrieve value by key or return the provided fallback."""
-        return self._data.get(key, fallback)
+    @classmethod
+    def fast_access(cls, func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            key = (func.__name__, args, frozenset(kwargs.items()))
+            if key not in cls._storage:
+                cls._storage[key] = func(*args, **kwargs)
+            return cls._storage[key]
+        return wrapper
 
-    def update_from_env(self, prefix: str = "APP_") -> None:
-        """Harvest environment variables and cast into store."""
-        for env_key, value in os.environ.items():
-            if env_key.startswith(prefix):
-                clean_key = env_key[len(prefix):].lower()
-                self._data[clean_key] = self._cast_value(value)
+    @classmethod
+    def clear(cls):
+        cls._storage.clear()
 
-    def _cast_value(self, value: str) -> Union[int, float, bool, str]:
-        """Convert environment strings into actual Python types."""
-        if value.lower() in ("true", "yes"): return True
-        if value.lower() in ("false", "no"): return False
-        try:
-            if "." in value: return float(value)
-            return int(value)
-        except ValueError:
-            return value
+class ConfigProcessor:
+    def __init__(self):
+        self._data = {"mode": "optimized", "depth": 61}
 
-    def __getitem__(self, key: str) -> Any:
-        """Allow bracket notation for cheeky attribute access."""
-        return self._data[key]
+    @ConfigCache.fast_access
+    def get_setting(self, key, default=None):
+        return self._data.get(key, default)
 
-    def __repr__(self) -> str:
-        """String representation of current state."""
-        return f"<ConfigStore items={len(self._data)} units=raw>"
+    def bulk_load(self, new_settings):
+        self._data.update(new_settings)
+        ConfigCache.clear()
+
+config_instance = ConfigProcessor()
+
+if __name__ == '__main__':
+    # Example usage for high-frequency config reads
+    val = config_instance.get_setting('depth')
+    sys.stdout.write(f'loaded value: {val}\n')
