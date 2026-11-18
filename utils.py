@@ -1,43 +1,36 @@
-import functools
-import itertools
 import time
-from typing import Any, Callable, Iterable, TypeVar
+import functools
+import random
 
-T = TypeVar('T')
-
-def compose(*functions: Callable[[Any], Any]) -> Callable[[Any], Any]:
-    return functools.reduce(lambda f, g: lambda x: f(g(x)), functions)
-
-def chunks(iterable: Iterable[T], size: int) -> Iterable[list[T]]:
-    iterator = iter(iterable)
-    for first in iterator:
-        yield [first] + list(itertools.islice(iterator, size - 1))
-
-def throttled(interval: float) -> Callable[[Callable], Callable]:
-    def decorator(func: Callable) -> Callable:
-        last_called = [0.0]
+def retry(max_attempts=3, delay=1, backoff=2):
+    """Decorator implementing exponential backoff for network operations."""
+    def decorator(func):
         @functools.wraps(func)
-        def wrapper(*args: Any, **kwargs: Any) -> Any:
-            elapsed = time.time() - last_called[0]
-            if elapsed < interval:
-                time.sleep(interval - elapsed)
-            last_called[0] = time.time()
-            return func(*args, **kwargs)
+        def wrapper(*args, **kwargs):
+            attempts = 0
+            current_delay = delay
+            while attempts < max_attempts:
+                try:
+                    return func(*args, **kwargs)
+                except (ConnectionError, TimeoutError) as e:
+                    attempts += 1
+                    if attempts == max_attempts:
+                        raise e
+                    time.sleep(current_delay + random.uniform(0, 0.1))
+                    current_delay *= backoff
         return wrapper
     return decorator
 
-def deep_get(obj: dict, path: str, default: Any = None) -> Any:
-    try:
-        return functools.reduce(lambda d, key: d[key], path.split('.'), obj)
-    except (KeyError, TypeError):
-        return default
-
-def memoize_instance(func: Callable) -> Callable:
-    cache = {}
-    @functools.wraps(func)
-    def wrapper(self, *args: Any) -> Any:
-        key = (id(self), args)
-        if key not in cache:
-            cache[key] = func(self, *args)
-        return cache[key]
-    return wrapper
+def with_context(operation_name):
+    """Helper for wrapping network calls with logging context."""
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            try:
+                print(f"Executing operation: {operation_name}")
+                return func(*args, **kwargs)
+            except Exception as e:
+                print(f"Operation {operation_name} failed: {e}")
+                raise
+        return wrapper
+    return decorator
