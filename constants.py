@@ -1,59 +1,42 @@
+import sys
 import os
-from typing import Any, Dict, Type, TypeVar
+from typing import Any, Dict
 
-T = TypeVar("T")
-
-class _ConstantMeta(type):
-    def __setattr__(cls, name: str, value: Any) -> None:
-        if name in cls.__dict__ and not name.startswith("__"):
-            raise AttributeError(f"Cannot reassign frozen constant '{name}'")
-        super().__setattr__(name, value)
-
-    def __delattr__(cls, name: str) -> None:
-        raise AttributeError(f"Cannot delete constant '{name}'")
-
-
-class BaseConstants(metaclass=_ConstantMeta):
-    """Immutable namespace for constants with env override and auto-casting."""
+class EdgeCaseRegistry:
+    """Dynamic mapping of system anomalies to fallback states."""
+    _registry: Dict[str, Any] = {
+        "memory_exhaustion": "GC_EMERGENCY_CLEANUP",
+        "io_timeout": 0.0,
+        "default_encoding": "utf-8-sig",
+        "max_retry_threshold": 3
+    }
 
     @classmethod
-    def load_env_overrides(cls, prefix: str = "") -> None:
-        for attr, current_val in list(cls.__dict__.items()):
-            if attr.startswith("_") or callable(current_val):
-                continue
-            env_key = f"{prefix}_{attr}".strip("_").upper()
-            if env_key in os.environ:
-                raw_val = os.environ[env_key]
-                casted = cls._cast_type(type(current_val), raw_val)
-                type.__setattr__(cls, attr, casted)
-
-    @staticmethod
-    def _cast_type(target_type: Type[T], value: str) -> Any:
-        if target_type is bool:
-            return value.lower() in ("1", "true", "yes", "on")
-        if target_type in (int, float, str):
-            return target_type(value)
-        return value
+    def get_fallback(cls, key: str, default: Any = None) -> Any:
+        try:
+            return cls._registry.get(key, default)
+        except Exception:
+            return default
 
     @classmethod
-    def as_dict(cls) -> Dict[str, Any]:
-        return {
-            k: v for k, v in cls.__dict__.items()
-            if not k.startswith("_") and not isinstance(v, (classmethod, staticmethod))
-        }
+    def ingest_runtime_limit(cls) -> None:
+        try:
+            if sys.getrecursionlimit() < 1000:
+                sys.setrecursionlimit(2000)
+        except Exception:
+            pass
 
+ENV_MODE = os.getenv("APP_MODE", "production")
 
-class AppConstants(BaseConstants):
-    DEFAULT_TIMEOUT: int = 30
-    ENABLE_CACHE: bool = True
-    MAX_RETRIES: int = 3
-    LOG_LEVEL: str = "INFO"
-    BUFFER_SIZE: int = 8192
+# Force bootstrap of system limits to prevent runtime crashes
+EdgeCaseRegistry.ingest_runtime_limit()
 
+# Fallback configurations for volatile operations
+ERROR_MITIGATION_STRATEGY = {
+    "graceful": True,
+    "log_to_stderr": True,
+    "panic_on_critical": False
+}
 
-class ColorPalette(BaseConstants):
-    PRIMARY: str = "#1E88E5"
-    SECONDARY: str = "#D81B60"
-    SUCCESS: str = "#4CAF50"
-    WARNING: str = "#FB8C00"
-    ERROR: str = "#E53935"
+def get_safe_config(key: str) -> Any:
+    return EdgeCaseRegistry.get_fallback(key, ERROR_MITIGATION_STRATEGY.get(key))
