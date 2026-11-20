@@ -1,30 +1,36 @@
-import time
-import functools
-import random
+from typing import Any, Callable, Dict, List, Union
 
-def retry_network_op(max_attempts=3, base_delay=1):
-    def decorator(func):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            attempts = 0
-            while attempts < max_attempts:
-                try:
-                    return func(*args, **kwargs)
-                except (ConnectionError, TimeoutError) as e:
-                    attempts += 1
-                    if attempts >= max_attempts:
-                        raise e
-                    sleep_time = (base_delay * (2 ** (attempts - 1))) + random.uniform(0, 1)
-                    time.sleep(sleep_time)
-            return None
-        return wrapper
-    return decorator
+class DataShaper:
+    """An unorthodox approach to data structure enforcement."""
+    def __init__(self, schema: Dict[str, Callable[[Any], bool]]):
+        self.schema = schema
 
-def validate_connection(func):
-    @functools.wraps(func)
-    def checker(*args, **kwargs):
-        result = func(*args, **kwargs)
-        if result is None:
-            raise ValueError('Operation yielded empty result')
-        return result
-    return checker
+    def __call__(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Sanitizes and validates incoming dictionary data."""
+        validated = {}
+        for key, validator in self.schema.items():
+            value = data.get(key)
+            if validator(value):
+                validated[key] = value
+            else:
+                raise ValueError(f"Invalid data format for key: {key}")
+        return validated
+
+def is_non_empty_str(val: Any) -> bool:
+    return isinstance(val, str) and len(val.strip()) > 0
+
+def is_positive_int(val: Any) -> bool:
+    return isinstance(val, int) and val >= 0
+
+class TypeGuard:
+    """Functional wrapper for conditional data transformation."""
+    @staticmethod
+    def coerce(item: Any, target_type: type, fallback: Any) -> Any:
+        try:
+            return target_type(item)
+        except (ValueError, TypeError):
+            return fallback
+
+def batch_process(data_list: List[Dict], shaper: DataShaper) -> List[Dict]:
+    """Functional processing of data batches with shaper."""
+    return [shaper(item) for item in data_list]
