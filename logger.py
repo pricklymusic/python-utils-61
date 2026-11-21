@@ -1,37 +1,31 @@
 import logging
 from logging.handlers import RotatingFileHandler
 import sys
+from pathlib import Path
 
-def get_rotating_logger(name: str, log_file: str = 'app.log', level: int = logging.INFO) -> logging.Logger:
-    """
-    A logger that rotates its files based on size.
-    Uses a custom formatter to display thread names for visibility.
-    """
-    logger = logging.getLogger(name)
-    logger.setLevel(level)
-
-    if not logger.handlers:
-        formatter = logging.Formatter(
-            '[%(asctime)s] [%(threadName)s] %(levelname)s: %(message)s',
-            datefmt='%Y-%m-%d %H:%M:%S'
-        )
-
-        # File rotation: 5MB per file, keep 3 backups
-        file_handler = RotatingFileHandler(
-            log_file, maxBytes=5 * 1024 * 1024, backupCount=3
-        )
-        file_handler.setFormatter(formatter)
+class LoggerOrchestrator:
+    def __init__(self, name='app_logger', log_dir='logs', max_bytes=1048576, backups=5):
+        self.log_path = Path(log_dir)
+        self.log_path.mkdir(exist_ok=True)
+        self.logger = logging.getLogger(name)
+        self.logger.setLevel(logging.DEBUG)
         
-        # Standard stream handler for console output
-        stream_handler = logging.StreamHandler(sys.stdout)
-        stream_handler.setFormatter(formatter)
+        fmt = logging.Formatter('%(asctime)s | %(levelname)-8s | %(message)s')
+        
+        sh = logging.StreamHandler(sys.stdout)
+        sh.setFormatter(fmt)
+        self.logger.addHandler(sh)
+        
+        fh = RotatingFileHandler(
+            self.log_path / f'{name}.log', 
+            maxBytes=max_bytes, 
+            backupCount=backups
+        )
+        fh.setFormatter(fmt)
+        self.logger.addHandler(fh)
 
-        logger.addHandler(file_handler)
-        logger.addHandler(stream_handler)
+    def get(self):
+        return self.logger
 
-    return logger
-
-# Quick invocation example
-if __name__ == '__main__':
-    log = get_rotating_logger('python-utils-61')
-    log.info('System initialization complete')
+def setup_logger(name='main', path='logs'):
+    return LoggerOrchestrator(name, path).get()
