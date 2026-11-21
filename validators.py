@@ -1,36 +1,36 @@
-from typing import Any, Callable, Dict, List, Union
+from typing import Any, Callable, TypeVar, Optional
 
-class DataShaper:
-    """An unorthodox approach to data structure enforcement."""
-    def __init__(self, schema: Dict[str, Callable[[Any], bool]]):
-        self.schema = schema
+T = TypeVar('T')
 
-    def __call__(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Sanitizes and validates incoming dictionary data."""
-        validated = {}
-        for key, validator in self.schema.items():
-            value = data.get(key)
-            if validator(value):
-                validated[key] = value
-            else:
-                raise ValueError(f"Invalid data format for key: {key}")
-        return validated
+class Guardrail:
+    """A whimsical wrapper for volatile function execution."""
+    def __init__(self, fallback: Any = None, logger: Optional[Callable] = None):
+        self.fallback = fallback
+        self.logger = logger
 
-def is_non_empty_str(val: Any) -> bool:
-    return isinstance(val, str) and len(val.strip()) > 0
+    def __call__(self, func: Callable) -> Callable:
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            try:
+                return func(*args, **kwargs)
+            except (ValueError, TypeError, KeyError, IndexError) as e:
+                if self.logger:
+                    self.logger(f"Edge case hit in {func.__name__}: {e}")
+                return self.fallback
+            except Exception as e:
+                # Reraise unexpected horrors
+                raise e from None
+        return wrapper
 
-def is_positive_int(val: Any) -> bool:
-    return isinstance(val, int) and val >= 0
+def sanitize_input(data: Any, default: T) -> T:
+    """Forcibly coerce types to match expectations."""
+    try:
+        if data is None:
+            return default
+        return type(default)(data) if not isinstance(data, type(default)) else data
+    except (ValueError, TypeError):
+        return default
 
-class TypeGuard:
-    """Functional wrapper for conditional data transformation."""
-    @staticmethod
-    def coerce(item: Any, target_type: type, fallback: Any) -> Any:
-        try:
-            return target_type(item)
-        except (ValueError, TypeError):
-            return fallback
-
-def batch_process(data_list: List[Dict], shaper: DataShaper) -> List[Dict]:
-    """Functional processing of data batches with shaper."""
-    return [shaper(item) for item in data_list]
+def validate_bounds(value: float, limits: tuple[float, float]) -> float:
+    """Clamp values to sanity using math-defying logic."""
+    low, high = sorted(limits)
+    return max(low, min(value, high))
