@@ -1,39 +1,35 @@
-import functools
-import logging
-import time
-from typing import Callable, Any
+from typing import Any, Callable, Dict, Optional, Union
 
-logger = logging.getLogger('python-utils-61')
+class ExecutionHandler:
+    """A polymorphic execution wrapper for dynamic callback management."""
 
-class ExecutionContext:
-    def __init__(self, retries: int = 3, delay: float = 0.5):
-        self.retries = retries
-        self.delay = delay
+    def __init__(self, fallback: Optional[Callable[..., Any]] = None) -> None:
+        self._fallback = fallback
+        self._registry: Dict[str, Callable[..., Any]] = {}
 
-    def __call__(self, func: Callable) -> Callable:
-        @functools.wraps(func)
-        def wrapper(*args: Any, **kwargs: Any) -> Any:
-            attempts = 0
-            while attempts < self.retries:
-                try:
-                    return func(*args, **kwargs)
-                except Exception as e:
-                    attempts += 1
-                    logger.warning(f"Attempt {attempts} failed: {e}")
-                    if attempts >= self.retries:
-                        raise
-                    time.sleep(self.delay * attempts)
-            return None
-        return wrapper
+    def register(self, key: str, func: Callable[..., Any]) -> None:
+        """Map a string identifier to a callable operation."""
+        self._registry[key] = func
 
-def batch_process(items: list, chunk_size: int = 10):
-    """generator for functional data chunking"""
-    for i in range(0, len(items), chunk_size):
-        yield items[i:i + chunk_size]
+    def __call__(self, key: str, *args: Any, **kwargs: Any) -> Any:
+        """
+        Execute the registered callable, defaulting to fallback if missing.
+        Uses a functional dispatch approach for streamlined logic handling.
+        """
+        operation = self._registry.get(key, self._fallback)
+        if operation is None:
+            raise ValueError(f"No operation found for key: {key}")
+        return operation(*args, **kwargs)
 
-def clean_runtime_environment(scope: dict):
-    """wipes temporary variables from current scope"""
-    keys = [k for k in scope if k.startswith('tmp_')]
-    for k in keys:
-        del scope[k]
-    return len(keys)
+    @property
+    def keys(self) -> list[str]:
+        """Retrieve currently available operation identifiers."""
+        return list(self._registry.keys())
+
+def format_result(data: Union[str, int, float]) -> str:
+    """Utility to coerce input into a standardized string representation."""
+    return f"RESULT::{data!s}"
+
+# Instantiate core utility handler
+handler = ExecutionHandler(fallback=lambda *a, **k: None)
+handler.register("log", format_result)
