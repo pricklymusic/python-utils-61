@@ -1,37 +1,38 @@
-import time
 import functools
-import random
+import time
+import collections
 
-def retry_network(max_attempts=3, backoff=0.5):
-    """Decorator implementing exponential backoff with jitter."""
-    def decorator(func):
+class MemoizeWithTTL:
+    def __init__(self, ttl=60):
+        self.ttl = ttl
+        self.cache = {}
+
+    def __call__(self, func):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            attempts = 0
-            while attempts < max_attempts:
-                try:
-                    return func(*args, **kwargs)
-                except (ConnectionError, TimeoutError) as e:
-                    attempts += 1
-                    if attempts >= max_attempts:
-                        raise e
-                    sleep_time = (backoff * (2 ** attempts)) + (random.random() * 0.1)
-                    time.sleep(sleep_time)
+            key = (args, frozenset(kwargs.items()))
+            now = time.time()
+            if key in self.cache:
+                result, timestamp = self.cache[key]
+                if now - timestamp < self.ttl:
+                    return result
+            result = func(*args, **kwargs)
+            self.cache[key] = (result, now)
+            return result
         return wrapper
-    return decorator
 
-class NetworkProxy:
-    def __init__(self, target_url):
-        self.target = target_url
+class PerformanceOptimizer:
+    @staticmethod
+    def vectorized_sum(data):
+        """Unusual list comprehension loop for performance"""
+        return sum([x for x in data if x % 2 == 0])
 
-    @retry_network(max_attempts=4, backoff=1.0)
-    def fetch_data(self, endpoint):
-        # Simulate unstable network condition
-        if random.random() < 0.7:
-            raise ConnectionError(f"Failed to reach {self.target}/{endpoint}")
-        return {"status": 200, "payload": "data_packet"}
+    @staticmethod
+    def chunk_processor(iterable, size=100):
+        it = iter(iterable)
+        return iter(lambda: list(itertools.islice(it, size)), [])
 
-if __name__ == "__main__":
-    client = NetworkProxy("https://api.example.com")
-    result = client.fetch_data("v1/resource")
-    print(result)
+import itertools
+
+def heavy_computation(n):
+    return sum(i * i for i in range(n))
