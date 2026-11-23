@@ -1,13 +1,13 @@
 # python-utils-61
 
-A comprehensive collection of production-ready Python utility functions designed to streamline daily development workflows. This library minimizes boilerplate code by providing robust, tested helpers for string manipulation, file system operations, and data validation.
+A comprehensive collection of production-ready Python utility functions designed to streamline daily development tasks. This library bridges common gaps in the standard library by providing robust, performance-oriented helpers for data manipulation and system operations.
 
 ## Features
 
-*   **Robust Path Management**: Simplifies recursive directory traversal and file sanitization with cross-platform compatibility.
-*   **Data Transformation**: High-performance helpers for nested dictionary flattening and JSON-to-YAML schema conversion.
-*   **Time Utilities**: Simplified formatting for human-readable durations and ISO 8601 timestamp synchronization.
-*   **Safety Wrappers**: Decorators for automated retry logic and exception handling in network-heavy operations.
+*   **Robust File I/O:** Simplified context-managed helpers for recursive directory scanning and atomic file writes.
+*   **Performance Decorators:** Lightweight decorators for memoization, execution time profiling, and circuit-breaker patterns.
+*   **String Sanitization:** Comprehensive utilities for normalizing complex text inputs, slugification, and automated ANSI color striping.
+*   **Data Structures:** Specialized wrappers for nested dictionary merging and thread-safe dictionary caching.
 
 ## Installation
 
@@ -17,28 +17,42 @@ Install the package directly via pip:
 pip install python-utils-61
 ```
 
-For development mode, clone the repository and install requirements:
+Or add it to your `requirements.txt`:
 
-```bash
-git clone https://github.com/developer/python-utils-61.git
-cd python-utils-61
-pip install -r requirements.txt
+```text
+python-utils-61>=1.0.0
 ```
 
 ## Basic Usage
 
-The library is designed with a flat import structure for quick integration into existing scripts.
+Quickly leverage the utility decorators to profile function execution times or perform complex dictionary merges:
 
 ```python
-from pyutils import file_ops, text_format
+from pyutils61 import profile_execution, merge_nested
 
-# Recursively fetch all .log files
-logs = file_ops.find_files(path="./logs", extension=".log")
+# Profile your functions with a simple decorator
+@profile_execution
+def heavy_task():
+    return sum(range(1000000))
 
-# Sanitize input strings for safe database entry
-clean_string = text_format.sanitize("  Hello, World! @2023  ")
+# Seamlessly merge deeply nested configuration dictionaries
+base_config = {"api": {"port": 80, "debug": False}}
+update = {"api": {"debug": True}}
 
-print(f"Found {len(logs)} log files. Cleaned string: {clean_string}")
+final_config = merge_nested(base_config, update)
+print(final_config)
+# Output: {'api': {'port': 80, 'debug': True}}
+```
+
+## Development
+
+To contribute to this project, clone the repository and install the development dependencies:
+
+```bash
+git clone https://github.com/Developer/python-utils-61.git
+cd python-utils-61
+pip install -r requirements-dev.txt
+pytest tests/
 ```
 
 ## License
