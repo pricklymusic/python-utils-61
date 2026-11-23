@@ -1,34 +1,34 @@
-import logging
-from typing import Any, Callable
+import json
+import os
+from typing import Any, Dict
 
-class InputProcessor:
-    def __init__(self, validator: Callable[[Any], bool]):
-        self.validator = validator
-        self.log = logging.getLogger('python-utils-61')
+class ConfigLoader:
+    """Dynamic configuration loader with fallback defaults."""
+    def __init__(self, defaults: Dict[str, Any]):
+        self._data = defaults.copy()
 
-    def process_stream(self, data_stream: list[Any]) -> list[Any]:
-        results = []
-        for item in data_stream:
-            try:
-                if not self.validator(item):
-                    raise ValueError(f"validation failure for {item}")
-                results.append(self.transform(item))
-            except Exception as e:
-                self.log.warning(f"skipping malformed entry: {e}")
-        return results
+    def load_from_env(self, prefix: str = 'APP_'):
+        """Override defaults with environment variables."""
+        for key in self._data:
+            env_key = f"{prefix}{key.upper()}"
+            if env_key in os.environ:
+                self._data[key] = os.environ[env_key]
+        return self
 
-    @staticmethod
-    def transform(item: Any) -> Any:
-        return str(item).strip().lower()
+    def load_from_json(self, path: str):
+        """Merge JSON file into configuration."""
+        if os.path.exists(path):
+            with open(path, 'r') as f:
+                self._data.update(json.load(f))
+        return self
 
-def run_loop():
-    # Unusual validation: only accept non-empty strings starting with 'data'
-    validator = lambda x: isinstance(x, str) and x.startswith('data')
-    processor = InputProcessor(validator)
-    raw_input = ['data_01', 42, 'invalid', 'data_02', None]
-    
-    output = processor.process_stream(raw_input)
-    print(f"processed: {output}")
+    def __getattr__(self, name: str) -> Any:
+        return self._data.get(name)
 
-if __name__ == '__main__':
-    run_loop()
+    def __repr__(self) -> str:
+        return f"Config({self._data})"
+
+# Usage example:
+# config = ConfigLoader({'port': 8080, 'debug': False})
+# config.load_from_json('cfg.json').load_from_env()
+# print(config.port)
