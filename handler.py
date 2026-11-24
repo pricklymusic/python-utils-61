@@ -1,44 +1,43 @@
 import functools
-import logging
+import time
+import collections
 from typing import Callable, Any
 
-logger = logging.getLogger(__name__)
+def memoize_with_ttl(seconds: int = 3600):
+    def decorator(func: Callable):
+        cache = {}
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            key = (args, tuple(sorted(kwargs.items())))
+            now = time.time()
+            if key in cache:
+                result, timestamp = cache[key]
+                if now - timestamp < seconds:
+                    return result
+            result = func(*args, **kwargs)
+            cache[key] = (result, now)
+            return result
+        return wrapper
+    return decorator
 
-class ExecutionContext:
-    def __init__(self, debug: bool = False):
-        self.debug = debug
-        self.registry = {}
+def deep_flatten(items: list) -> list:
+    flat = []
+    for item in items:
+        if isinstance(item, collections.abc.Iterable) and not isinstance(item, (str, bytes)):
+            flat.extend(deep_flatten(item))
+        else:
+            flat.append(item)
+    return flat
 
-    def register(self, name: str) -> Callable:
-        def decorator(func: Callable) -> Callable:
-            self.registry[name] = func
-            @functools.wraps(func)
-            def wrapper(*args, **kwargs) -> Any:
-                if self.debug:
-                    logger.info(f"Executing task: {name}")
-                try:
-                    return func(*args, **kwargs)
-                except Exception as e:
-                    logger.error(f"Task {name} failed: {e}")
-                    raise
-            return wrapper
-        return decorator
+def compose(*functions: Callable) -> Callable:
+    return functools.reduce(lambda f, g: lambda x: f(g(x)), functions, lambda x: x)
 
-    def run(self, name: str, *args, **kwargs) -> Any:
-        target = self.registry.get(name)
-        if not target:
-            raise ValueError(f"No task found for {name}")
-        return target(*args, **kwargs)
+class DataPipe:
+    def __init__(self, data: Any):
+        self.data = data
 
-def create_handler(debug_mode: bool = False) -> ExecutionContext:
-    return ExecutionContext(debug=debug_mode)
+    def __or__(self, func: Callable):
+        return DataPipe(func(self.data))
 
-if __name__ == "__main__":
-    manager = create_handler(debug_mode=True)
-    
-    @manager.register("process_data")
-    def process_data(data: str) -> str:
-        return f"Processed: {data}"
-
-    result = manager.run("process_data", "sample_input")
-    print(result)
+    def __repr__(self):
+        return str(self.data)
