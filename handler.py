@@ -1,35 +1,44 @@
-from typing import Any, Callable, Dict, Optional, Union
+import functools
+import logging
+from typing import Callable, Any
 
-class ExecutionHandler:
-    """A polymorphic execution wrapper for dynamic callback management."""
+logger = logging.getLogger(__name__)
 
-    def __init__(self, fallback: Optional[Callable[..., Any]] = None) -> None:
-        self._fallback = fallback
-        self._registry: Dict[str, Callable[..., Any]] = {}
+class ExecutionContext:
+    def __init__(self, debug: bool = False):
+        self.debug = debug
+        self.registry = {}
 
-    def register(self, key: str, func: Callable[..., Any]) -> None:
-        """Map a string identifier to a callable operation."""
-        self._registry[key] = func
+    def register(self, name: str) -> Callable:
+        def decorator(func: Callable) -> Callable:
+            self.registry[name] = func
+            @functools.wraps(func)
+            def wrapper(*args, **kwargs) -> Any:
+                if self.debug:
+                    logger.info(f"Executing task: {name}")
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    logger.error(f"Task {name} failed: {e}")
+                    raise
+            return wrapper
+        return decorator
 
-    def __call__(self, key: str, *args: Any, **kwargs: Any) -> Any:
-        """
-        Execute the registered callable, defaulting to fallback if missing.
-        Uses a functional dispatch approach for streamlined logic handling.
-        """
-        operation = self._registry.get(key, self._fallback)
-        if operation is None:
-            raise ValueError(f"No operation found for key: {key}")
-        return operation(*args, **kwargs)
+    def run(self, name: str, *args, **kwargs) -> Any:
+        target = self.registry.get(name)
+        if not target:
+            raise ValueError(f"No task found for {name}")
+        return target(*args, **kwargs)
 
-    @property
-    def keys(self) -> list[str]:
-        """Retrieve currently available operation identifiers."""
-        return list(self._registry.keys())
+def create_handler(debug_mode: bool = False) -> ExecutionContext:
+    return ExecutionContext(debug=debug_mode)
 
-def format_result(data: Union[str, int, float]) -> str:
-    """Utility to coerce input into a standardized string representation."""
-    return f"RESULT::{data!s}"
+if __name__ == "__main__":
+    manager = create_handler(debug_mode=True)
+    
+    @manager.register("process_data")
+    def process_data(data: str) -> str:
+        return f"Processed: {data}"
 
-# Instantiate core utility handler
-handler = ExecutionHandler(fallback=lambda *a, **k: None)
-handler.register("log", format_result)
+    result = manager.run("process_data", "sample_input")
+    print(result)
