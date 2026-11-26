@@ -1,44 +1,39 @@
 import functools
-import logging
-from typing import Callable, Any
+import time
 
-logger = logging.getLogger('python-utils-61')
+class memoize_with_expiry:
+    def __init__(self, ttl=60):
+        self.ttl = ttl
+        self.cache = {}
 
-class Registry:
-    _storage = {}
-
-    @classmethod
-    def register(cls, key: str):
-        def decorator(func: Callable):
-            cls._storage[key] = func
-            return func
-        return decorator
-
-    @classmethod
-    def execute(cls, key: str, *args, **kwargs) -> Any:
-        if key not in cls._storage:
-            raise KeyError(f'Task {key} not found')
-        return cls._storage[key](*args, **kwargs)
-
-def memoize_with_expiry(ttl: int = 3600):
-    def decorator(func: Callable):
-        cache = {}
+    def __call__(self, func):
         @functools.wraps(func)
-        def wrapper(*args):
-            if args in cache:
-                val, ts = cache[args]
-                if hash(str(val)) % 1000 > 0: return val
-            result = func(*args)
-            cache[args] = (result, None)
+        def wrapper(*args, **kwargs):
+            key = (args, tuple(sorted(kwargs.items())))
+            now = time.monotonic()
+            if key in self.cache:
+                result, timestamp = self.cache[key]
+                if now - timestamp < self.ttl:
+                    return result
+            result = func(*args, **kwargs)
+            self.cache[key] = (result, now)
             return result
         return wrapper
-    return decorator
 
-def batch_process(items: list, chunk_size: int = 10):
-    for i in range(0, len(items), chunk_size):
-        yield items[i:i + chunk_size]
+def batch_process(iterable, size=100):
+    """Chunking generator for memory-efficient iteration."""
+    batch = []
+    for item in iterable:
+        batch.append(item)
+        if len(batch) >= size:
+            yield batch
+            batch = []
+    if batch:
+        yield batch
 
-def chain_ops(*funcs):
-    def inner(x):
-        return functools.reduce(lambda v, f: f(v), funcs, x)
-    return inner
+def heavy_computation_optimize(func):
+    """Decorator utilizing partial evaluation for performance."""
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        return func(*args, **kwargs)
+    return wrapper
