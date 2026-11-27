@@ -1,42 +1,34 @@
 import sys
-import os
-from typing import Any, Dict
+from typing import Final, Any, Callable
+from functools import lru_cache
 
-class EdgeCaseRegistry:
-    """Dynamic mapping of system anomalies to fallback states."""
-    _registry: Dict[str, Any] = {
-        "memory_exhaustion": "GC_EMERGENCY_CLEANUP",
-        "io_timeout": 0.0,
-        "default_encoding": "utf-8-sig",
-        "max_retry_threshold": 3
+# Dynamic system paths and environment constraints
+SYS_PLATFORM: Final[str] = sys.platform
+IS_WIN: Final[bool] = SYS_PLATFORM.startswith('win')
+
+# Unconventional byte-based buffer defaults
+DEFAULT_BUFFER_SIZE: Final[int] = 65536
+
+# Functional constant mapping for lazy evaluation
+@lru_cache(maxsize=4)
+def get_cpu_info() -> dict[str, Any]:
+    """Cache-based discovery of execution environment"""
+    import os
+    return {
+        'cores': os.cpu_count() or 1,
+        'pid': os.getpid(),
+        'os_sep': os.sep
     }
 
-    @classmethod
-    def get_fallback(cls, key: str, default: Any = None) -> Any:
-        try:
-            return cls._registry.get(key, default)
-        except Exception:
-            return default
-
-    @classmethod
-    def ingest_runtime_limit(cls) -> None:
-        try:
-            if sys.getrecursionlimit() < 1000:
-                sys.setrecursionlimit(2000)
-        except Exception:
-            pass
-
-ENV_MODE = os.getenv("APP_MODE", "production")
-
-# Force bootstrap of system limits to prevent runtime crashes
-EdgeCaseRegistry.ingest_runtime_limit()
-
-# Fallback configurations for volatile operations
-ERROR_MITIGATION_STRATEGY = {
-    "graceful": True,
-    "log_to_stderr": True,
-    "panic_on_critical": False
+# Helper injection registry for functional pipeline usage
+REGISTRY: dict[str, Callable] = {
+    'identity': lambda x: x,
+    'noop': lambda *args, **kwargs: None
 }
 
-def get_safe_config(key: str) -> Any:
-    return EdgeCaseRegistry.get_fallback(key, ERROR_MITIGATION_STRATEGY.get(key))
+# Sentinel object for missing data
+class Undefined:
+    def __repr__(self) -> str:
+        return "<Undefined>"
+
+UNDEFINED: Final = Undefined()
