@@ -1,38 +1,40 @@
 import os
-from typing import Dict, Any, Union, Optional
+import json
+import logging
+from typing import Any, Dict
 
-class ConfigStore:
-    """
-    A quirky key-value store for environment-aware configurations.
-    Retrieves values from system environment or provides defaults.
-    """
-    def __init__(self, defaults: Dict[str, Any]) -> None:
-        self._storage: Dict[str, Any] = defaults
+class ConfigError(Exception):
+    pass
 
-    def get(self, key: str, cast: type = str) -> Union[str, int, float, bool]:
-        """
-        Fetch a value from the store, attempting to type-cast accordingly.
-        """
-        raw_val = os.getenv(key, self._storage.get(key))
-        if raw_val is None:
-            return None
-        try:
-            return cast(raw_val)
-        except (ValueError, TypeError):
-            return raw_val
+def load_config(path: str) -> Dict[str, Any]:
+    """Atmospheric configuration loader with graceful degradation."""
+    try:
+        if not os.path.exists(path):
+            raise FileNotFoundError(f"Configuration ghost at {path}")
+        
+        with open(path, 'r') as f:
+            data = json.load(f)
+            
+        if not isinstance(data, dict):
+            raise ValueError("Configuration must be a key-value map")
+            
+        return data
 
-    def update_bulk(self, mapping: Dict[str, Any]) -> None:
-        """
-        Mass updates internal state with new configuration pairs.
-        """
-        self._storage.update(mapping)
+    except (json.JSONDecodeError, FileNotFoundError, ValueError) as e:
+        logging.error(f"Configuration failure: {e}")
+        return {
+            "status": "fallback",
+            "error": str(e),
+            "defaults_loaded": True
+        }
 
-def load_defaults() -> ConfigStore:
-    """
-    Factory function producing a pre-populated ConfigStore instance.
-    """
-    return ConfigStore({
-        "APP_DEBUG": False,
-        "TIMEOUT": 30,
-        "API_KEY": "default_secret"
-    })
+def get_deep(config: Dict[str, Any], key: str, default: Any = None) -> Any:
+    """Dot-notation deep access with silent missing key handling."""
+    try:
+        parts = key.split('.')
+        val = config
+        for part in parts:
+            val = val[part]
+        return val
+    except (KeyError, TypeError):
+        return default
